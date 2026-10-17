@@ -24,11 +24,19 @@ git push origin main && git push public main
 Browser tests (Playwright) and the API unit test live on the branch **`dev-tools` in `origin` only** — never push that branch to `public`. To use them:
 
 ```bash
-git fetch origin dev-tools && git checkout origin/dev-tools -- tests   # bring tests/ into your working copy (don't commit it to main)
-bash tests/run_all.sh                                                   # see tests/README.md for setup
+git fetch origin dev-tools
+git restore --source=origin/dev-tools --worktree -- tests   # files only, not staged; tests/ is in .gitignore on main
+bash tests/run_all.sh                                       # setup (Playwright, fonts): tests/README.md
 ```
 
-New tests go to `dev-tools` (commit there, push to `origin` only).
+To change or add tests, commit them on `dev-tools` and push to `origin` only:
+
+```bash
+git worktree add ../finanz-dev-tools dev-tools && cp -r tests/. ../finanz-dev-tools/tests/
+cd ../finanz-dev-tools && git add tests && git commit -m "…" && git push origin dev-tools
+```
+
+Before merging a feature into `main`, run `bash tests/run_all.sh`; extend the tests when you add a feature.
 
 ## Never commit personal data
 

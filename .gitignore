@@ -1,0 +1,2 @@
+# Tests live on the private branch dev-tools (see AGENTS.md) — never commit them to main
+tests/
