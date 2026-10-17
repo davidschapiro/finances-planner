@@ -604,6 +604,8 @@ const I18N_EN = {
   "Name": "Name",
   "Fehler": "Error",
   "Sprache": "Language",
+  "✓ angewendet": "✓ applied",
+  "Bereits auf den Kontostand angewendet – ändern über ⚙ am Konto.": "Already applied to the balance – change it with ⚙ on the account.",
   "So funktioniert das Budget": "How the budget works",
   "Ein Monat im Blick": "One month at a time",
   "Das Budget zeigt immer einen Monat. Mit ‹ und › wechselst du zwischen den Monaten.": "The budget always shows one month. Use ‹ and › to switch between months.",
@@ -613,7 +615,7 @@ const I18N_EN = {
   "Weitere Buchungen": "Other transactions",
   "Geplante Buchungen des Monats, die zu keiner Vorlage gehören, erscheinen automatisch (ohne Rahmen). Umbuchungen zählen nicht, und Eingänge auf Kreditkarten zählen nicht als Einnahmen.": "Planned transactions of the month that don’t belong to a template appear automatically (without a frame). Transfers don’t count, and incoming amounts on credit cards don’t count as income.",
   "Einnahmen minus Ausgaben des Monats – einschließlich der noch nicht gebuchten Vorlagen. Ist er positiv, bleibt im Monat etwas übrig.": "The month’s income minus expenses – including templates that aren’t booked yet. If it’s positive, something is left over that month.",
-  "Tipp: Eine gebuchte Vorlage bleibt für den Monat als „✓ gebucht“ markiert – auch wenn du die Buchung später mit ✓ auf den Kontostand anwendest. So wird nichts doppelt gebucht.": "Tip: a booked template stays marked “✓ booked” for that month – even after you apply the transaction to the balance with ✓. So nothing gets booked twice.",
+  "„✓ gebucht“: Die geplante Buchung steht noch in der Liste – ↺ nimmt sie zurück. „✓ angewendet“: Sie wurde mit ✓ auf den Kontostand angewendet. Dann gibt es kein ↺ mehr; Korrekturen machst du über ⚙ am Konto. So wird nichts doppelt gebucht.": "“✓ booked”: the planned transaction is still in the list – ↺ takes it back. “✓ applied”: it was applied to the balance with ✓. Then there’s no ↺ any more; corrections go through ⚙ on the account. So nothing gets booked twice.",
   "Verstanden": "Got it",
   "Datumsformat": "Date format",
   "Automatisch ({ex})": "Automatic ({ex})",
@@ -1624,9 +1626,14 @@ function App() {
     const newInit = { ...init, [tx.acct]: Math.round((init[tx.acct] + tx.amt) * 100) / 100 };
     if (tx.to && tx.to in newInit) newInit[tx.to] = Math.round((newInit[tx.to] - tx.amt) * 100) / 100;
     const newTxs  = txs.filter(t => t.id !== tx.id);
+    // If this was a budget template's transaction, remember that its month is now applied
+    const tpl = !tx.to && budget.find(b => matchesTemplate(tx, b));
+    const month = (tx.date || '').slice(0, 7);
+    const newBudget = tpl ? markMonth(markMonth(budget, tpl.id, 'bookedMonths', month, true), tpl.id, 'appliedMonths', month, true) : budget;
     setInit(newInit);
     setTxs(newTxs);
-    persist(newTxs, newInit, accts, tags, budget);
+    if (tpl) setBudget(newBudget);
+    persist(newTxs, newInit, accts, tags, newBudget);
   };
 
   const startDup = tx => { setDupId(tx.id); setDupDate(tx.date); };
@@ -1743,12 +1750,13 @@ function App() {
   // Booking a template creates a transaction linked to it (budgetId) AND marks the month on the
   // template (bookedMonths). The mark survives when that transaction is later applied with ✓ Buchen
   // (which removes it from the list), so the template can't accidentally be booked twice.
-  const setBookedMonth = (item, month, on) => budget.map(b => b.id !== item.id ? b : (() => {
-    const months = new Set(b.bookedMonths || []);
+  const markMonth = (list, itemId, key, month, on) => list.map(b => b.id !== itemId ? b : (() => {
+    const months = new Set(b[key] || []);
     on ? months.add(month) : months.delete(month);
-    const { bookedMonths: _, ...rest } = b;
-    return months.size ? { ...rest, bookedMonths: [...months].sort() } : rest;
+    const { [key]: _, ...rest } = b;
+    return months.size ? { ...rest, [key]: [...months].sort() } : rest;
   })());
+  const setBookedMonth = (item, month, on) => markMonth(budget, item.id, 'bookedMonths', month, on);
   const confirmBookBudgetItem = item => {
     if (!budgetBookDate) return; // date is mandatory
     const newTxs = [...txs, { id:Date.now(), date:budgetBookDate, acct:item.acct || Object.keys(accts)[0],
@@ -1772,6 +1780,7 @@ function App() {
     () => txs.filter(t => (t.date || '').slice(0,7) === budgetPeriod),
     [txs, budgetPeriod]
   );
+  const isBudgetItemApplied = item => (item.appliedMonths || []).includes(budgetPeriod) && !budgetInPeriod.some(t => matchesTemplate(t, item));
   const isBudgetItemBooked = item => (item.bookedMonths || []).includes(budgetPeriod) || budgetInPeriod.some(t => matchesTemplate(t, item));
   // Real transactions this period that don't correspond to any budget template — shown as plain rows.
   const adhocInPeriod = useMemo(
@@ -2105,7 +2114,14 @@ function App() {
       accts[item.acct] && e('span', { style:{fontSize: isMobile ? 13 : 11, color:'var(--text3)'} }, accts[item.acct].label),
       e('span', { style:{fontFamily:'var(--mono)', fontSize:isMobile ? 15 : 13, minWidth:76, textAlign:'right', color:colColor} },
         eur(Math.abs(item.amt))),
-      booked
+      booked && isBudgetItemApplied(item)
+        ? e('button', { type:'button', className:'pillx',
+            onClick: () => showToast(tr('Bereits auf den Kontostand angewendet – ändern über ⚙ am Konto.')),
+            title: tr('Bereits auf den Kontostand angewendet – ändern über ⚙ am Konto.'),
+            style:{ fontSize: isMobile ? 13 : 11, minHeight:0, height:'auto', padding:'2px 8px', borderRadius:8, whiteSpace:'nowrap',
+              border:'1px solid var(--ok)', background:'var(--ok)', color:'var(--on-primary)', fontWeight:600, cursor:'pointer' } },
+            tr('✓ angewendet'))
+      : booked
         ? e('div', { style:{display:'flex', alignItems:'center', gap:4} },
             e('span', { style:{fontSize: isMobile ? 13 : 11, color:'var(--ok)', border:'1px solid var(--ok)',
               borderRadius:8, padding:'1px 7px', whiteSpace:'nowrap'} }, tr('✓ gebucht')),
@@ -2640,7 +2656,7 @@ function App() {
           e('span', { style:{ fontSize:16, fontWeight:600, color:'var(--text)' } }, tr(title)),
           e('span', { style:{ fontSize:15, lineHeight:1.45, color:'var(--text2)' } }, tr(body))))),
       e('div', { style:{ fontSize:13, lineHeight:1.45, color:'var(--text2)', background:'var(--bg2)', borderRadius:12, padding:'10px 14px', marginTop:6 } },
-        tr('Tipp: Eine gebuchte Vorlage bleibt für den Monat als „✓ gebucht“ markiert – auch wenn du die Buchung später mit ✓ auf den Kontostand anwendest. So wird nichts doppelt gebucht.')),
+        tr('„✓ gebucht“: Die geplante Buchung steht noch in der Liste – ↺ nimmt sie zurück. „✓ angewendet“: Sie wurde mit ✓ auf den Kontostand angewendet. Dann gibt es kein ↺ mehr; Korrekturen machst du über ⚙ am Konto. So wird nichts doppelt gebucht.')),
       e('div', { style:{ display:'flex', justifyContent:'flex-end', marginTop:12 } },
         e('button', { className:'btn-filled', onClick:()=>setShowBudgetInfo(false) }, tr('Verstanden'))),
     ));
