@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0&icon_names=add,arrow_downward,arrow_forward,arrow_upward,backspace,bar_chart,calculate,check,chevron_left,chevron_right,close,content_copy,delete,download,edit,expand_less,expand_more,label,search,settings,swap_horiz,upload&display=block" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0&icon_names=add,arrow_downward,arrow_forward,arrow_upward,backspace,bar_chart,calculate,check,chevron_left,chevron_right,close,content_copy,delete,download,edit,expand_less,expand_more,label,language,payments,search,settings,swap_horiz,upload&display=block" rel="stylesheet">
 <meta name="theme-color" content="#FEF7FF" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#141218" media="(prefers-color-scheme: dark)">
 
@@ -531,13 +531,13 @@ const e = React.createElement;
 // Account types: 'giro' (default; bar shows the buffer above the overdraft limit),
 // 'savings' (bar shows progress towards `goal`), 'credit' (credit card: incoming amounts are
 // repayments/refunds, so they don't count as income in the budget).
-const DEFAULT_ACCTS = {
-  giro:  { label: 'Girokonto',   color: '#EF9F27', floor: -1000 },
-  spar:  { label: 'Sparkonto',   color: '#1D9E75', floor: 0, type: 'savings', goal: 5000 },
-  karte: { label: 'Kreditkarte', color: '#378ADD', floor: -1500, type: 'credit' },
-};
+const defaultAccts = () => ({
+  giro:  { label: tr('Girokonto'),   color: '#EF9F27', floor: -1000 },
+  spar:  { label: tr('Sparkonto'),   color: '#1D9E75', floor: 0, type: 'savings', goal: 5000 },
+  karte: { label: tr('Kreditkarte'), color: '#378ADD', floor: -1500, type: 'credit' },
+});
 const DEFAULT_INIT = { giro: 500, spar: 1000, karte: -150 };   // example starting balances
-const ACCT_TYPES = [['giro','Girokonto'], ['savings','Sparkonto'], ['credit','Kreditkarte']];
+const ACCT_TYPES = [['giro','Girokonto'], ['savings','Sparkonto'], ['credit','Kreditkarte']];   // labels via tr() at render
 const acctType = a => a?.type === 'savings' || a?.type === 'credit' ? a.type : 'giro';
 // 0–100 fill of an account's bar, or null when there is nothing meaningful to show
 const acctPct = (a, bal) => {
@@ -545,22 +545,196 @@ const acctPct = (a, bal) => {
   if (a.floor === null || a.floor === undefined || a.floor >= 0) return null;
   return Math.max(0, Math.min(100, (bal - a.floor) / (0 - a.floor) * 100));
 };
-const NET_COLOR    = '#7F77DD';
 
-// Neutral example data — only shown when neither the Worker nor localStorage has data yet
-const SEED = [
-  { id: 1, date:'2026-01-01', acct:'giro',  desc:'Miete',          amt: -850 },
-  { id: 2, date:'2026-01-03', acct:'karte', desc:'Lebensmittel',   amt:  -95 },
-  { id: 3, date:'2026-01-05', acct:'giro',  desc:'Strom',          amt:  -60 },
-  { id: 4, date:'2026-01-10', acct:'karte', desc:'Handyvertrag',   amt:  -20 },
-  { id: 5, date:'2026-01-28', acct:'giro',  desc:'Gehalt',         amt: 2400 },
-  { id: 6, date:'2026-01-29', acct:'giro', to:'spar', desc:'Sparrate', amt: -200, tags:[] },
+// Neutral example data (in the current language) — only shown when there is no saved data yet
+const seedTxs = () => [
+  { id: 1, date:'2026-01-01', acct:'giro',  desc:tr('Miete'),          amt: -850 },
+  { id: 2, date:'2026-01-03', acct:'karte', desc:tr('Lebensmittel'),   amt:  -95 },
+  { id: 3, date:'2026-01-05', acct:'giro',  desc:tr('Strom'),          amt:  -60 },
+  { id: 4, date:'2026-01-10', acct:'karte', desc:tr('Handyvertrag'),   amt:  -20 },
+  { id: 5, date:'2026-01-28', acct:'giro',  desc:tr('Gehalt'),         amt: 2400 },
+  { id: 6, date:'2026-01-29', acct:'giro', to:'spar', desc:tr('Sparrate'), amt: -200, tags:[] },
 ];
 
+// ── Language, number format and currency ─────────────────────────────────────
+// UI texts are written in German in the code; tr() returns the English text from I18N_EN when
+// the language is English. To add a language: add it to LANGS and add a dictionary like I18N_EN.
+const LANGS = { de: 'Deutsch', en: 'English' };
+const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'ILS', 'CAD', 'AUD', 'PLN', 'SEK', 'NOK', 'DKK', 'CZK', 'JPY'];
+let LANG = 'de', CUR = 'EUR', NUMLOC = 'de-DE';
+let SETTINGS = {};                    // { lang, currency } — saved with the data, so all devices match
+const browserLang = () => /^de\b/i.test(navigator.language || '') ? 'de' : 'en';
+function setLocale(lang, cur) {
+  LANG = LANGS[lang] ? lang : browserLang();
+  CUR  = CURRENCIES.includes(cur) ? cur : 'EUR';
+  const nav = navigator.language || '';
+  NUMLOC = LANG === 'de' ? 'de-DE' : (/^en-/i.test(nav) ? nav : 'en-GB');
+  document.documentElement.lang = LANG;
+}
+setLocale(browserLang(), 'EUR');
+const I18N_EN = {
+  "Girokonto": "Checking account",
+  "Sparkonto": "Savings account",
+  "Kreditkarte": "Credit card",
+  "Miete": "Rent",
+  "Lebensmittel": "Groceries",
+  "Strom": "Electricity",
+  "Handyvertrag": "Phone plan",
+  "Gehalt": "Salary",
+  "Sparrate": "Savings transfer",
+  "Finanzübersicht": "Finances",
+  "Einstellungen": "Settings",
+  "Schließen": "Close",
+  "Abbrechen": "Cancel",
+  "Fertig": "Done",
+  "Rückgängig": "Undo",
+  "Hinzufügen": "Add",
+  "+ Hinzufügen": "+ Add",
+  "✓ Hinzufügen": "✓ Add",
+  "✓ Speichern": "✓ Save",
+  "Bearbeiten": "Edit",
+  "Löschen": "Delete",
+  "Kopieren": "Copy",
+  "✓ Kopieren": "✓ Copy",
+  "Neu laden": "Reload",
+  "Farbe": "Colour",
+  "Name": "Name",
+  "Fehler": "Error",
+  "Sprache": "Language",
+  "Währung": "Currency",
+  "Anmeldung abgelaufen – Änderungen werden nicht gespeichert.": "Login expired – changes are not being saved.",
+  "Änderungen von einem anderen Gerät wurden zusammengeführt.": "Changes from another device were merged.",
+  "Keine Daten zum Exportieren.": "No data to export.",
+  "Ungültige Datei.": "Invalid file.",
+  "Datei konnte nicht gelesen werden.": "Could not read the file.",
+  "Daten exportieren": "Export data",
+  "Sicherung als JSON-Datei herunterladen": "Download a backup as a JSON file",
+  "Daten importieren": "Import data",
+  "Aus einer Sicherung wiederherstellen": "Restore from a backup",
+  "Tags verwalten": "Manage tags",
+  "Konto hinzufügen": "Add account",
+  "Konto": "Account",
+  "Keine Tags erstellt": "No tags yet",
+  "Neuer Tag": "New tag",
+  "Taschenrechner": "Calculator",
+  "Übernehmen": "Insert",
+  "{v} übernehmen": "Insert {v}",
+  "Kontostandverlauf": "Balance history",
+  "Überziehungslimits": "Overdraft limits",
+  "Ungültiger Kontoname.": "Invalid account name.",
+  "Konto \"{key}\" existiert bereits.": "Account \"{key}\" already exists.",
+  "\"{name}\" löschen?\n{n} Buchung(en) werden ebenfalls entfernt.": "Delete \"{name}\"?\n{n} transaction(s) will be removed as well.",
+  "Anfangsstand bearbeiten": "Edit balance",
+  "Konto löschen": "Delete account",
+  "Vorzeichen wechseln": "Toggle sign",
+  "Andere eigene Farbe wählen": "Pick another custom colour",
+  "Eigene Farbe wählen": "Pick a custom colour",
+  "Vorschau:": "Preview:",
+  "Kontostand": "Balance",
+  "Kontoart": "Account type",
+  "Sparziel": "Savings goal",
+  "Kreditrahmen": "Credit limit",
+  "Dispo-Limit": "Overdraft limit",
+  "Eingänge auf diesem Konto zählen im Budget nicht als Einnahmen (Rückzahlung/Erstattung).": "Incoming amounts on this account don’t count as budget income (repayments/refunds).",
+  "+ Neues Konto": "+ New account",
+  "z.B. Sparkasse": "e.g. My Bank",
+  "Anfangsstand": "Opening balance",
+  "Prognose": "Forecast",
+  "Sparziel {v}": "Goal {v}",
+  "{p} % erreicht": "{p} % reached",
+  "{v} Puffer": "{v} buffer",
+  "Limit {v}": "Limit {v}",
+  "Rahmen {v}": "Limit {v}",
+  "Gesamtsaldo": "Total balance",
+  "Konten für den Gesamtsaldo wählen": "Choose accounts for the total",
+  "Puffer bis Limit": "Buffer to limits",
+  "Im Gesamtsaldo enthalten": "Included in the total",
+  "Mindestens ein Konto muss enthalten sein": "At least one account must be included",
+  "{n} Konten": "{n} accounts",
+  "{n} von {m} Konten · ohne {list}": "{n} of {m} accounts · without {list}",
+  "{v} bis Ende": "{v} by the end",
+  "Prognose {v}": "Forecast {v}",
+  "Budget": "Budget",
+  "Vorheriger Monat": "Previous month",
+  "Nächster Monat": "Next month",
+  "Saldo": "Net",
+  "Einnahmen": "Income",
+  "Ausgaben": "Expenses",
+  "Keine Posten.": "No items.",
+  "Posten hinzufügen": "Add item",
+  "Neue Einnahme": "New income",
+  "Neue Ausgabe": "New expense",
+  "✓ gebucht": "✓ booked",
+  "Buchung dieses Monats entfernen": "Remove this month’s entry",
+  "Als Buchung übernehmen": "Turn into a transaction",
+  "→ Buchen": "→ Book",
+  "Vorlage löschen": "Delete template",
+  "Neue Buchung": "New transaction",
+  "Art": "Type",
+  "Buchung": "Transaction",
+  "Umbuchung": "Transfer",
+  "Datum": "Date",
+  "Betrag": "Amount",
+  "Beschreibung": "Description",
+  "Beschreibung (optional)": "Description (optional)",
+  "Konten tauschen": "Swap accounts",
+  "Von Konto": "From account",
+  "Nach Konto": "To account",
+  "Von": "From",
+  "Nach": "To",
+  "Sofort buchen": "Book now",
+  "Sofort umbuchen": "Transfer now",
+  "Umbuchen": "Transfer",
+  "Direkt auf den Kontostand anwenden – ohne Eintrag in der Liste": "Apply directly to the balance – no list entry",
+  "Wird direkt auf den Kontostand angewendet – kein Eintrag in der Liste.": "Applied directly to the balance – no list entry.",
+  "Betrag wird direkt auf den Kontostand angewendet – kein Eintrag in der Liste.": "The amount is applied directly to the balance – no list entry.",
+  "Bei Sofort-Buchung nicht nötig": "Not needed for “Book now”",
+  "Umbuchung {from} → {to}": "Transfer {from} → {to}",
+  "{amt} von {from} nach {to} umgebucht": "{amt} moved from {from} to {to}",
+  "{desc}: {amt} auf {acct} gebucht": "{desc}: {amt} booked to {acct}",
+  "Suchen…": "Search…",
+  "Suchen (Text, Betrag, Datum, Tag)…": "Search (text, amount, date, tag)…",
+  "Transaktionen durchsuchen": "Search transactions",
+  "Suche löschen": "Clear search",
+  "Zurücksetzen": "Reset",
+  "{n} von {m} · Σ ": "{n} of {m} · Σ ",
+  "Sortieren": "Sort",
+  "Richtung umkehren": "Reverse order",
+  "Keine Treffer.": "No matches.",
+  "Keine Buchungen.": "No transactions.",
+  "Buchen": "Book",
+  "Umbuchung ausführen": "Execute transfer",
+  "Buchung löschen?": "Delete transaction?",
+  "Umbuchung bearbeiten": "Edit transfer",
+  "Buchung bearbeiten": "Edit transaction",
+  "Kopie anlegen am:": "Create copy on:",
+  "\"{desc}\" buchen?\n{amt} wird von {from} nach {to} umgebucht und die Buchung entfernt.": "Book \"{desc}\"?\n{amt} will be moved from {from} to {to} and the entry removed.",
+  "\"{desc}\" buchen?\n{amt} wird auf {acct} angewendet und die Buchung entfernt.": "Book \"{desc}\"?\n{amt} will be applied to {acct} and the entry removed.",
+};
+const tr = (s, vars) => {
+  const r = LANG === 'en' ? (I18N_EN[s] ?? s) : s;
+  return vars ? r.replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '') : r;
+};
+const DEC = () => LANG === 'de' ? ',' : '.';                       // decimal separator for input
+const eur = n => typeof n === 'number' ? n.toLocaleString(NUMLOC, { style: 'currency', currency: CUR }) : '—';
+const toInput = n => String(n ?? '').replace('.', DEC());            // number → editable text
+// Text → number in the current language: German "1.234,50", English "1,234.50" (currency signs ignored)
+const parseAmount = v => {
+  let x = String(v ?? '').replace(/[−–]/g, '-').replace(/[^\d.,+-]/g, '');
+  if (LANG === 'de') { if (x.includes(',')) x = x.replace(/\./g, '').replace(',', '.'); }
+  else x = x.replace(/,/g, '');
+  return parseFloat(x);
+};
+const fmtDayMonth = iso => {
+  const [y, m, d] = String(iso).split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(NUMLOC, { day: '2-digit', month: '2-digit' });
+};
+const currencyLabel = c => {
+  const sym = (0).toLocaleString(NUMLOC, { style: 'currency', currency: c, currencyDisplay: 'narrowSymbol' }).replace(/[\d.,\s ]/g, '');
+  return sym && sym !== c ? `${c} (${sym})` : c;
+};
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
-const eur = n => typeof n === 'number'
-  ? n.toLocaleString('de-DE', { style: 'currency', currency: 'EUR', minimumFractionDigits: 2 })
-  : '—';
 
 function hexRgba(hex, a) {
   const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
@@ -571,7 +745,7 @@ function buildChart(txs, init) {
   const sorted = [...txs].sort((a,b) => a.date.localeCompare(b.date));
   const b = { ...init };
   const snap = lbl => ({ date:lbl, ...b, net: Math.round(Object.values(b).reduce((s, v) => s + (Number(v) || 0), 0)*100)/100 });
-  const pts = [snap('Start')];
+  const pts = [snap(tr('Start'))];
   const byDate = {};
   sorted.forEach(t => { (byDate[t.date] = byDate[t.date]||[]).push(t); });
   Object.keys(byDate).sort().forEach(date => {
@@ -579,8 +753,7 @@ function buildChart(txs, init) {
       b[t.acct] = Math.round((b[t.acct]+t.amt)*100)/100;
       if (t.to && t.to in b) b[t.to] = Math.round((b[t.to]-t.amt)*100)/100;   // Umbuchung: Gegenbuchung
     });
-    const [,mo,d] = date.split('-');
-    pts.push(snap(`${d}.${mo}.`));
+    pts.push(snap(fmtDayMonth(date)));
   });
   return pts;
 }
@@ -762,6 +935,7 @@ function mergeData(base, local, remote) {
     accts:  mergeObj(base.accts, local.accts, remote.accts),
     tags:   mergeById(base.tags, local.tags, remote.tags),
     budget: mergeById(base.budget, local.budget, remote.budget),
+    settings: mergeObj(base.settings, local.settings, remote.settings),
   };
 }
 
@@ -773,7 +947,7 @@ async function syncSave(local) {
   if (remote && (syncBase === null || remoteRev !== baseRev)) {
     // Server changed since we last synced (or we never synced) → merge instead of overwrite
     toSave = mergeData(syncBase, local, remote);
-    merged = JSON.stringify(toSave) !== JSON.stringify({ txs:local.txs, init:local.init, accts:local.accts, tags:local.tags, budget:local.budget });
+    merged = JSON.stringify(toSave) !== JSON.stringify({ txs:local.txs, init:local.init, accts:local.accts, tags:local.tags, budget:local.budget, settings:local.settings });
   }
   toSave = { ...toSave, rev: newRev() };
   try { await saveRemote(toSave); } catch { return; }
@@ -783,7 +957,7 @@ async function syncSave(local) {
 }
 
 async function persist(txs, init, accts, tags, budget) {
-  const data = { txs, init, accts, tags: tags || [], budget: budget || [] };
+  const data = { txs, init, accts, tags: tags || [], budget: budget || [], settings: SETTINGS };
   saveLocal(data);
   if (hasWorker()) syncQueue = syncQueue.then(() => syncSave(clone(data))).catch(() => {});
   return syncQueue;
@@ -831,7 +1005,7 @@ function TagDropdown({ selectedTags, onChange, tags, maxTags=2, alignRight=false
         boxShadow:'var(--elev2)' }
     },
       tags.length === 0
-        ? e('div', { style:{ padding:'8px 12px', fontSize:12, color:'var(--text3)' } }, 'Keine Tags erstellt')
+        ? e('div', { style:{ padding:'8px 12px', fontSize:12, color:'var(--text3)' } }, tr('Keine Tags erstellt'))
         : tags.map(tag => {
             const active = selectedTags.includes(tag.id);
             const atMax  = !active && selectedTags.length >= maxTags;
@@ -886,11 +1060,11 @@ function calcEval(tokens) {
 const calcNumDisplay = s => {          // '-1234.5' → '−1.234,5' (keeps a trailing comma while typing)
   const neg = s.startsWith('-'); const body = neg ? s.slice(1) : s;
   const [int, frac] = body.split('.');
-  const intFmt = int === '' ? '' : Number(int).toLocaleString('de-DE');
-  return (neg ? '−' : '') + intFmt + (frac !== undefined ? ',' + frac : '');
+  const intFmt = int === '' ? '' : Number(int).toLocaleString(NUMLOC);
+  return (neg ? '−' : '') + intFmt + (frac !== undefined ? DEC() + frac : '');
 };
-const calcResultDisplay = n => n === null ? '' : isNaN(n) ? 'Fehler'
-  : n.toLocaleString('de-DE', { maximumFractionDigits: 8 }).replace('-', '−');
+const calcResultDisplay = n => n === null ? '' : isNaN(n) ? tr('Fehler')
+  : n.toLocaleString(NUMLOC, { maximumFractionDigits: 8 }).replace('-', '−');
 
 function CalcPopover({ onInsert, value }) {
   const [open, setOpen] = useState(false);
@@ -972,12 +1146,12 @@ function CalcPopover({ onInsert, value }) {
   const result = done ? done.result : calcEval(tokens);
   const insert = () => {
     if (result === null || isNaN(result)) return;
-    onInsert(String(result).replace('.', ','));
+    onInsert(toInput(result));
     setOpen(false); reset();
   };
   const openCalc = () => {
     // Pre-fill with the amount already in the field, so you can continue calculating with it
-    const v = parseFloat(String(value ?? '').replace(/\s/g, '').replace(',', '.'));
+    const v = parseAmount(value);
     setDone(null); setTokens(isNaN(v) ? [] : [String(v)]);
     setOpen(true);
   };
@@ -1019,7 +1193,7 @@ function CalcPopover({ onInsert, value }) {
     e('button', {
       ref, type:'button', className:'ibtn',
       style:{ position:'absolute', right:2, top:'50%', transform:'translateY(-50%)', fontSize:13, zIndex:1 },
-      title:'Taschenrechner',
+      title:tr('Taschenrechner'),
       onClick: ev => { ev.stopPropagation(); open ? setOpen(false) : openCalc(); }
     }, e(Icon, { name:'calc', size: mob ? 22 : 15 })),
     open && e('div', {
@@ -1053,13 +1227,13 @@ function CalcPopover({ onInsert, value }) {
         B('1', ()=>digit('1')), B('2', ()=>digit('2')), B('3', ()=>digit('3')),
         B('+', ()=>chooseOp('+'), opStyle, opActive('+')),
 
-        B('±', toggleSign), B('0', ()=>digit('0')), B(',', dot),
+        B('±', toggleSign), B('0', ()=>digit('0')), B(DEC(), dot),
         B('=', equals, opStyle, { background:'rgba(22,163,74,0.15)', color:'var(--ok)', fontWeight:600 }),
       ),
       e('button', { type:'button', disabled: result === null || isNaN(result),
         style:{ width:'100%', marginTop:6, fontSize:12, justifyContent:'center', fontWeight:600,
           opacity: (result === null || isNaN(result)) ? 0.5 : 1 }, onClick:insert },
-        result === null || isNaN(result) ? 'Übernehmen' : `${calcResultDisplay(result)} übernehmen`)
+        result === null || isNaN(result) ? tr('Übernehmen') : tr('{v} übernehmen', { v: calcResultDisplay(result) }))
     )
   );
 }
@@ -1081,7 +1255,7 @@ function BalanceChart({ data, accts, height = 300 }) {
       })),
 
       ...Object.entries(accts).map(([k, a]) => ({
-        label: `${a.label} Limit`, data: data.map(() => a.floor),
+        label: `${a.label} Limit`, isLimit: true, data: data.map(() => a.floor),
         borderColor: hexRgba(a.color, 0.45), backgroundColor: 'transparent',
         borderWidth: 1.5, borderDash: [5,4], pointRadius: 0, pointHoverRadius: 0, tension: 0,
       })),
@@ -1141,14 +1315,14 @@ function BalanceChart({ data, accts, height = 300 }) {
           legend: { display: false },
           tooltip: {
             mode: 'index', intersect: false,
-            filter: item => !item.dataset.label.includes('Limit'),
+            filter: item => !item.dataset.isLimit,
             callbacks: { label: ctx => `${ctx.dataset.label}: ${eur(ctx.parsed.y)}` },
           },
         },
         scales: {
           x: { grid: { color:'rgba(127,127,127,0.1)' }, ticks: { font:{size:11}, maxRotation:0 } },
           y: { grid: { color:'rgba(127,127,127,0.1)' }, ticks: { font:{size:11},
-               callback: v => `${v<0?'-':''}${Math.abs(v/1000).toFixed(0)}k` } },
+               callback: v => new Intl.NumberFormat(NUMLOC, { notation:'compact', maximumFractionDigits:1 }).format(v) } },
         },
       },
     });
@@ -1157,17 +1331,17 @@ function BalanceChart({ data, accts, height = 300 }) {
   }, [data, accts]);
 
   return e('div', { style:{position:'relative', height} },
-    e('canvas', { ref: canvasRef, role:'img', 'aria-label':'Kontostandverlauf' })
+    e('canvas', { ref: canvasRef, role:'img', 'aria-label':tr('Kontostandverlauf') })
   );
 }
 
 // ── Main app ──────────────────────────────────────────────────────────────────
 function App() {
-  const [txs,     setTxs]     = useState(SEED);
+  const [txs,     setTxs]     = useState(seedTxs);
   const [init,    setInit]    = useState(DEFAULT_INIT);
   const [syncing, setSyncing] = useState(false);
   const [lastSync,    setLastSync]    = useState(null);
-  const [accts,      setAccts]      = useState(DEFAULT_ACCTS);
+  const [accts,      setAccts]      = useState(defaultAccts);
   const [newAcctForm,setNewAcctForm] = useState(null);
   const [tags,       setTags]       = useState([]);
   const [tagForm,    setTagForm]    = useState(null);
@@ -1180,7 +1354,7 @@ function App() {
   const [budgetPeriod, setBudgetPeriod] = useState(() => new Date().toISOString().slice(0,7));
   const [filterTags, setFilterTags] = useState([]);
   const [search,     setSearch]     = useState('');
-  const [form,    setForm]    = useState({ date:'', acct:Object.keys(DEFAULT_ACCTS)[0], desc:'', amt:'' });
+  const [form,    setForm]    = useState({ date:'', acct:'giro', desc:'', amt:'' });
   const [editRow, setEditRow] = useState(null);
   const [dupId,   setDupId]   = useState(null);
   const [dupDate, setDupDate] = useState('');
@@ -1194,6 +1368,10 @@ function App() {
   const [showAdd, setShowAdd] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showTotalCfg, setShowTotalCfg] = useState(false);
+  const [settings, setSettings] = useState({});               // { lang, currency }
+  SETTINGS = settings;
+  setLocale(settings.lang, settings.currency);                 // before anything below formats or translates
+  useEffect(() => { document.title = tr('Finanzübersicht'); }, [LANG]);
   const [budgetAddOpen, setBudgetAddOpen] = useState(null);   // 'in' | 'out' | null  // mobile: add-form collapsed by default
 
   // Keep the "Neue Buchung" account valid when the account list changes (e.g. after loading)
@@ -1203,11 +1381,12 @@ function App() {
 
   // Apply a full data snapshot to state
   const applyData = data => {
-    setTxs(data?.txs || SEED);
+    setTxs(data?.txs || seedTxs());
     if (data?.init)   setInit(data.init);
     if (data?.accts)  setAccts(data.accts);
     if (data?.tags)   setTags(data.tags || []);
     if (data?.budget) setBudget(data.budget || []);
+    setSettings(data?.settings || {});
   };
   const refreshRemote = async () => {
     try {
@@ -1235,8 +1414,8 @@ function App() {
   useEffect(() => {
     authListener = () => {
       clearTimeout(toastTimer.current);
-      setToast({ id: Date.now(), msg: 'Anmeldung abgelaufen – Änderungen werden nicht gespeichert.',
-        action: 'Neu laden', undo: () => window.location.reload() });
+      setToast({ id: Date.now(), msg: tr('Anmeldung abgelaufen – Änderungen werden nicht gespeichert.'),
+        action: tr('Neu laden'), undo: () => window.location.reload() });
     };
     return () => { authListener = null; };
   }, []);
@@ -1245,7 +1424,7 @@ function App() {
   useEffect(() => {
     syncListener = merged => {
       applyData(merged); setLastSync(new Date());
-      showToast('Änderungen von einem anderen Gerät wurden zusammengeführt.');
+      showToast(tr('Änderungen von einem anderen Gerät wurden zusammengeführt.'));
     };
     return () => { syncListener = null; };
   }, []);
@@ -1264,7 +1443,7 @@ function App() {
     return () => { clearInterval(id); document.removeEventListener('visibilitychange', onVis); window.removeEventListener('focus', onVis); };
   }, []);
 
-  const chart = useMemo(() => buildChart(txs, init), [txs, init]);
+  const chart = useMemo(() => buildChart(txs, init), [txs, init, LANG, CUR]);
   const curr  = chart[chart.length - 1];
 
   // Latest state for async callbacks (toast undo)
@@ -1283,12 +1462,10 @@ function App() {
   const formTo = form.to && form.to !== form.acct && accts[form.to] ? form.to : acctKeys.find(k => k !== form.acct);
   const canAdd = form.amt !== '' && (form.instant || !!form.date) &&
     (isTransfer ? (!!formTo && formTo !== form.acct) : !!form.desc);
-  const transferDesc = (from, to) => `Umbuchung ${accts[from]?.label ?? from} → ${accts[to]?.label ?? to}`;
+  const transferDesc = (from, to) => tr('Umbuchung {from} → {to}', { from: accts[from]?.label ?? from, to: accts[to]?.label ?? to });
   const add = () => {
     if (!canAdd) return;
-    let t = String(form.amt).trim();
-    if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
-    let a = parseFloat(t);
+    let a = parseAmount(form.amt);
     if (isNaN(a) || (isTransfer && a === 0)) return;
     if (isTransfer) {
       const from = form.acct, to = formTo, X = Math.abs(a);
@@ -1300,7 +1477,7 @@ function App() {
         setInit(newInit);
         persist(txs, newInit, accts, tags, budget);
         setForm(f => ({ ...f, desc:'', amt:'', tags:[], instant:false }));
-        showToast(`${eur(X)} von ${accts[from]?.label} nach ${accts[to]?.label} umgebucht`, () => {
+        showToast(tr('{amt} von {from} nach {to} umgebucht', { amt: eur(X), from: accts[from]?.label, to: accts[to]?.label }), () => {
           const L = latestRef.current;
           const undone = { ...L.init,
             [from]: Math.round(((L.init[from] ?? 0) + X) * 100) / 100,
@@ -1324,7 +1501,7 @@ function App() {
       setInit(newInit);
       persist(txs, newInit, accts, tags, budget);
       setForm(f => ({ ...f, desc:'', amt:'', tags:[], instant:false }));
-      showToast(`${form.desc.trim()}: ${eur(a)} auf ${label} gebucht`, () => {
+      showToast(tr('{desc}: {amt} auf {acct} gebucht', { desc: form.desc.trim(), amt: eur(a), acct: label }), () => {
         const L = latestRef.current;
         const undone = { ...L.init, [acct]: Math.round(((L.init[acct] ?? 0) - a) * 100) / 100 };
         setInit(undone);
@@ -1339,13 +1516,11 @@ function App() {
   };
 
   const startEdit = tx => setEditRow({ id:tx.id, date:tx.date, acct:tx.acct, to:tx.to, desc:tx.desc,
-    amt: String(tx.to ? Math.abs(tx.amt) : tx.amt).replace('.', ','), tags:tx.tags||[] });
+    amt: toInput(tx.to ? Math.abs(tx.amt) : tx.amt), tags:tx.tags||[] });
 
   const saveEdit = () => {
     if (!editRow) return;
-    let t0 = String(editRow.amt).trim();
-    if (t0.includes(',')) t0 = t0.replace(/\./g, '').replace(',', '.');
-    let a = parseFloat(t0);
+    let a = parseAmount(editRow.amt);
     if (isNaN(a)) return;
     if (editRow.to) { if (editRow.to === editRow.acct) return; a = -Math.abs(a); }
     const desc = (editRow.desc || '').trim() || (editRow.to ? transferDesc(editRow.acct, editRow.to) : '');
@@ -1355,13 +1530,14 @@ function App() {
     setTxs(next); persist(next, init, accts, tags, budget); setEditRow(null);
   };
 
-  const del = id => { if (confirm('Buchung löschen?')) { const next = txs.filter(t => t.id !== id); setTxs(next); persist(next, init, accts, tags, budget); } };
+  const del = id => { if (confirm(tr('Buchung löschen?'))) { const next = txs.filter(t => t.id !== id); setTxs(next); persist(next, init, accts, tags, budget); } };
 
   const buchen = tx => {
     const label = accts[tx.acct]?.label ?? tx.acct;
     const msg = tx.to
-      ? `"${tx.desc}" buchen?\n${eur(Math.abs(tx.amt))} wird von ${label} nach ${accts[tx.to]?.label ?? tx.to} umgebucht und die Buchung entfernt.`
-      : `"${tx.desc}" buchen?\n${eur(tx.amt)} wird auf ${label} angewendet und die Buchung entfernt.`;
+      ? tr('"{desc}" buchen?\n{amt} wird von {from} nach {to} umgebucht und die Buchung entfernt.',
+          { desc: tx.desc, amt: eur(Math.abs(tx.amt)), from: label, to: accts[tx.to]?.label ?? tx.to })
+      : tr('"{desc}" buchen?\n{amt} wird auf {acct} angewendet und die Buchung entfernt.', { desc: tx.desc, amt: eur(tx.amt), acct: label });
     if (!confirm(msg)) return;
     const newInit = { ...init, [tx.acct]: Math.round((init[tx.acct] + tx.amt) * 100) / 100 };
     if (tx.to && tx.to in newInit) newInit[tx.to] = Math.round((newInit[tx.to] - tx.amt) * 100) / 100;
@@ -1399,23 +1575,13 @@ function App() {
     setTags(newTags); setTxs(newTxs);
     persist(newTxs, init, accts, newTags, budget);
   };
-  const toggleTxTag = (txId, tagId) => {
-    const newTxs = txs.map(tx => {
-      if (tx.id !== txId) return tx;
-      const cur = tx.tags || [];
-      return { ...tx, tags: cur.includes(tagId) ? cur.filter(t => t !== tagId) : [...cur, tagId] };
-    });
-    setTxs(newTxs);
-    persist(newTxs, init, accts, tags, budget);
-  };
-
   const addAcct = () => {
     if (!newAcctForm) return;
     const key = (newAcctForm.key || newAcctForm.label).toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (!key) return alert('Ungültiger Kontoname.');
-    if (accts[key]) return alert(`Konto "${key}" existiert bereits.`);
-    const floor = parseFloat(String(newAcctForm.floor).replace(',','.')) || 0;
-    const initBal = parseFloat(String(newAcctForm.initBal).replace(',','.')) || 0;
+    if (!key) return alert(tr('Ungültiger Kontoname.'));
+    if (accts[key]) return alert(tr('Konto "{key}" existiert bereits.', { key }));
+    const floor = parseAmount(newAcctForm.floor) || 0;
+    const initBal = parseAmount(newAcctForm.initBal) || 0;
     const newAccts = { ...accts, [key]: { label: newAcctForm.label || key, color: newAcctForm.color || '#888888', floor } };
     const newInit  = { ...init, [key]: initBal };
     setAccts(newAccts); setInit(newInit); setNewAcctForm(null);
@@ -1424,7 +1590,7 @@ function App() {
 
   const deleteAcct = (key) => {
     const txCount = txs.filter(t => t.acct === key || t.to === key).length;
-    if (!confirm(`"${accts[key]?.label ?? key}" löschen?\n${txCount} Buchung(en) werden ebenfalls entfernt.`)) return;
+    if (!confirm(tr('"{name}" löschen?\n{n} Buchung(en) werden ebenfalls entfernt.', { name: accts[key]?.label ?? key, n: txCount }))) return;
     const newAccts = { ...accts }; delete newAccts[key];
     const newInit  = { ...init  }; delete newInit[key];
     const newTxs   = txs.filter(t => t.acct !== key && t.to !== key);
@@ -1435,20 +1601,16 @@ function App() {
   const openBalEdit = (key) => {
     const form = {};
     Object.entries(accts).forEach(([k, a]) => {
-      form[k] = String(init[k] ?? 0);
-      form[k + '_floor'] = String(a.floor ?? 0);
+      form[k] = toInput(init[k] ?? 0);
+      form[k + '_floor'] = toInput(a.floor ?? 0);
       form[k + '_color'] = a.color || '#888888';
       form[k + '_type']  = acctType(a);
-      form[k + '_goal']  = String(a.goal ?? '');
+      form[k + '_goal']  = toInput(a.goal ?? '');
     });
     setBalForm(form);
     setEditBal(key);
   };
-  const parseDe = v => {
-    let t = String(v ?? '').trim().replace(/\s|€/g, '');
-    if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
-    return parseFloat(t);
-  };
+  const parseDe = parseAmount;
   const saveBalances = () => {
     const newInit = Object.fromEntries(
       Object.keys(accts).map(k => [k, parseDe(balForm[k] ?? 0)])
@@ -1476,9 +1638,7 @@ function App() {
     const form = side === 'in' ? budgetIncomeForm : budgetExpenseForm;
     const setForm = side === 'in' ? setBudgetIncomeForm : setBudgetExpenseForm;
     if (!form.desc || form.amt === '') return;
-    let t = String(form.amt).trim();
-    if (t.includes(',')) t = t.replace(/\./g, '').replace(',', '.');
-    const mag = Math.abs(parseFloat(t));
+    const mag = Math.abs(parseAmount(form.amt));
     if (isNaN(mag) || mag === 0) return;
     const a = side === 'in' ? mag : -mag;
     const item = { id:Date.now(), desc:form.desc.trim(), amt:a, acct:form.acct || Object.keys(accts)[0] };
@@ -1549,7 +1709,7 @@ function App() {
   };
   const budgetPeriodLabel = (() => {
     const [y, m] = budgetPeriod.split('-').map(Number);
-    return new Date(y, m - 1, 1).toLocaleDateString('de-DE', { month:'long', year:'numeric' });
+    return new Date(y, m - 1, 1).toLocaleDateString(NUMLOC, { month:'long', year:'numeric' });
   })();
 
   // Search: every whitespace-separated term must match somewhere in
@@ -1562,9 +1722,10 @@ function App() {
       tx.desc, tx.acct, accts[tx.acct]?.label, tx.to, accts[tx.to]?.label, tx.to ? 'umbuchung transfer' : '',
       ...(tx.tags||[]).map(id => tags.find(t => t.id === id)?.label),
       tx.date, `${d}.${m}.${y}`, `${d}.${m}.`,
-      y && m ? new Date(+y, +m - 1, 1).toLocaleDateString('de-DE', { month:'long' }) : '',
-      String(tx.amt), de, de.replace(/,00$/, ''),
-      a.toLocaleString('de-DE', { minimumFractionDigits:2, maximumFractionDigits:2 }),
+      `${m}/${d}/${y}`, `${d}/${m}/${y}`, `${d}/${m}`, `${m}/${d}`,
+      ...(y && m ? ['de-DE', 'en-GB'].map(loc => new Date(+y, +m - 1, 1).toLocaleDateString(loc, { month:'long' })) : []),
+      String(tx.amt), de, de.replace(/,00$/, ''), a.toFixed(2),
+      ...['de-DE', 'en-GB'].map(loc => a.toLocaleString(loc, { minimumFractionDigits:2, maximumFractionDigits:2 })),
       (tx.amt < 0 ? '-' : '+') + de,
     ].filter(Boolean).join(' \u0001 ').toLowerCase();
   };
@@ -1584,10 +1745,6 @@ function App() {
     if (sort.by==='acct') return a.acct.localeCompare(b.acct) * m || a.date.localeCompare(b.date);
     return ((a[sort.by]||'').toString().localeCompare((b[sort.by]||'').toString())) * m;
   }), [visible, sort]);
-
-  const tog = f => setSort(s => ({ by:f, dir: s.by===f && s.dir==='asc' ? 'desc' : 'asc' }));
-  const arr = f => sort.by===f ? e('span', { style:{ display:'inline-flex', verticalAlign:'middle', marginLeft:2 } },
-    e(Icon, { name: sort.dir==='asc' ? 'arrow_upward' : 'arrow_downward', size:16 })) : null;
 
   // Keep the card being edited fully on screen (above the on-screen keyboard)
   useEffect(() => {
@@ -1609,7 +1766,7 @@ function App() {
     const field = (label, fkey, autoFocus) => e('div', { style:{display:'flex', flexDirection:'column', gap:4} },
       e('label', { style:{fontSize: isMobile ? 12 : 10, color:'var(--text2)', fontWeight:500, letterSpacing:'0.4px'} }, label),
       e('div', { style:{display:'flex', gap:6} },
-        e('button', { type:'button', onClick:()=>flip(fkey), title:'Vorzeichen wechseln',
+        e('button', { type:'button', onClick:()=>flip(fkey), title:tr('Vorzeichen wechseln'),
           style:{ minWidth: isMobile ? 48 : 34, fontFamily:'var(--mono)', padding: isMobile ? undefined : '4px 8px' } }, '±'),
         e('input', { value:balForm[fkey] ?? '', autoFocus, inputMode:'decimal',
           onFocus: ev => ev.target.select(),
@@ -1624,7 +1781,7 @@ function App() {
     const setColor = c => setBalForm(f => ({...f, [k + '_color']: c}));
     const sw = isMobile ? 34 : 22;
     const colorField = e('div', { style:{display:'flex', flexDirection:'column', gap:6} },
-      e('label', { style:{fontSize: isMobile ? 12 : 10, color:'var(--text2)', fontWeight:500, letterSpacing:'0.4px'} }, 'Farbe'),
+      e('label', { style:{fontSize: isMobile ? 12 : 10, color:'var(--text2)', fontWeight:500, letterSpacing:'0.4px'} }, tr('Farbe')),
       e('div', { style:{display:'flex', flexWrap:'wrap', gap: isMobile ? 8 : 6, alignItems:'center'} },
         ...ACCT_SWATCHES.map(c => e('button', { key:c, type:'button', className:'pillx', title:c,
           onClick:()=>setColor(c),
@@ -1637,7 +1794,7 @@ function App() {
           // Rainbow ring = "custom colour". Inner circle shows the custom colour once chosen;
           // the + stays visible so it's clear you can tap again to pick another one.
           return e('button', { type:'button', className:'pillx',
-            title: custom ? 'Andere eigene Farbe wählen' : 'Eigene Farbe wählen',
+            title: custom ? tr('Andere eigene Farbe wählen') : tr('Eigene Farbe wählen'),
             onClick: () => document.getElementById(`colorpick-${k}`)?.click(),
             style:{ width:sw, height:sw, minHeight:0, padding: custom ? 3 : 2.5, borderRadius:'50%', flexShrink:0,
               border:'none', cursor:'pointer', display:'block', boxSizing:'border-box', overflow:'hidden',
@@ -1656,33 +1813,33 @@ function App() {
       ),
       // Live preview of the pill
       e('div', { style:{display:'flex', alignItems:'center', gap:8, fontSize: isMobile ? 13 : 11, color:'var(--text3)'} },
-        'Vorschau:',
+        tr('Vorschau:'),
         e('span', { style:{fontSize: isMobile ? 12 : 11, padding:'2px 8px', borderRadius:5, fontWeight:500,
           background:hexRgba(inkColor(curColor, dark), dark ? 0.16 : 0.10), color:inkColor(curColor, dark)} }, a.label),
         e('span', { style:{width:22, height:2, background:curColor, display:'inline-block'} }),
       )
     );
     return e('div', { style:{display:'flex', flexDirection:'column', gap: isMobile ? 12 : 8, marginTop:6} },
-      field('Kontostand', k, true),
+      field(tr('Kontostand'), k, true),
       e('div', { style:{display:'flex', flexDirection:'column', gap:4} },
-        e('label', { style:{fontSize: isMobile ? 12 : 10, color:'var(--text2)', fontWeight:500, letterSpacing:'0.4px'} }, 'Kontoart'),
-        e('select', { value: balForm[k + '_type'] || acctType(a), 'aria-label':'Kontoart',
+        e('label', { style:{fontSize: isMobile ? 12 : 10, color:'var(--text2)', fontWeight:500, letterSpacing:'0.4px'} }, tr('Kontoart')),
+        e('select', { value: balForm[k + '_type'] || acctType(a), 'aria-label':tr('Kontoart'),
             onChange: ev => setBalForm(f => ({ ...f, [k + '_type']: ev.target.value })) },
-          ...ACCT_TYPES.map(([v, l]) => e('option', { key:v, value:v }, l)))),
+          ...ACCT_TYPES.map(([v, l]) => e('option', { key:v, value:v }, tr(l))))),
       (balForm[k + '_type'] || acctType(a)) === 'savings'
         ? e('div', { style:{display:'flex', flexDirection:'column', gap:4} },
-            e('label', { style:{fontSize: isMobile ? 12 : 10, color:'var(--text2)', fontWeight:500, letterSpacing:'0.4px'} }, 'Sparziel'),
+            e('label', { style:{fontSize: isMobile ? 12 : 10, color:'var(--text2)', fontWeight:500, letterSpacing:'0.4px'} }, tr('Sparziel')),
             e('input', { value:balForm[k + '_goal'] ?? '', inputMode:'decimal', placeholder:'z.B. 5000',
               style:{fontFamily:'var(--mono)', textAlign:'right'},
               onChange: ev => setBalForm(f => ({...f, [k + '_goal']: ev.target.value})),
               onKeyDown: keys }))
-        : field((balForm[k + '_type'] || acctType(a)) === 'credit' ? 'Kreditrahmen' : 'Dispo-Limit', k + '_floor', false),
+        : field((balForm[k + '_type'] || acctType(a)) === 'credit' ? tr('Kreditrahmen') : tr('Dispo-Limit'), k + '_floor', false),
       (balForm[k + '_type'] || acctType(a)) === 'credit' && e('span', { style:{ fontSize: isMobile ? 12 : 11, color:'var(--text3)' } },
-        'Eingänge auf diesem Konto zählen im Budget nicht als Einnahmen (Rückzahlung/Erstattung).'),
+        tr('Eingänge auf diesem Konto zählen im Budget nicht als Einnahmen (Rückzahlung/Erstattung).')),
       colorField,
       e('div', { style:{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginTop:2} },
-        e('button', { onClick:()=>setEditBal(false) }, 'Abbrechen'),
-        e('button', { onClick:saveBalances, style:{ fontWeight:600, background:'var(--primary)', color:'var(--on-primary)', border:'none' } }, '✓ Speichern'),
+        e('button', { onClick:()=>setEditBal(false) }, tr('Abbrechen')),
+        e('button', { onClick:saveBalances, style:{ fontWeight:600, background:'var(--primary)', color:'var(--on-primary)', border:'none' } }, tr('✓ Speichern')),
       )
     );
   };
@@ -1724,10 +1881,10 @@ function App() {
           e('span', { style:{ fontSize: isMobile ? 18 : 16, fontWeight:600, color:'var(--text)', letterSpacing:0 } }, a.label),
           e('div', { style:{display:'flex', gap:4} },
             e('button', { className:'ibtn', onClick:()=> editBal === k ? setEditBal(false) : openBalEdit(k),
-              title:'Anfangsstand bearbeiten', style: editBal === k ? {color:'var(--text)'} : undefined },
+              title:tr('Anfangsstand bearbeiten'), style: editBal === k ? {color:'var(--text)'} : undefined },
               e(Icon, { name:'settings', size: isMobile ? 22 : 18 })
             ),
-            e('button', { className:'ibtn', onClick:()=>deleteAcct(k), title:'Konto löschen' },
+            e('button', { className:'ibtn', onClick:()=>deleteAcct(k), title:tr('Konto löschen') },
               e(Icon, { name:'delete', size: isMobile ? 22 : 18 })
             ),
           ),
@@ -1741,15 +1898,15 @@ function App() {
             e('div', { style:{height:'100%', width:`${startPct}%`, borderRadius:2, background:startBarBg} })
           ),
           e('div', { style:{display:'flex', justifyContent:'space-between', fontSize: isMobile ? 12 : 10, color:'var(--text3)'} },
-            e('span', null, isSav ? `Sparziel ${eur(a.goal)}` : `${acctType(a) === 'credit' ? 'Rahmen' : 'Limit'} ${eur(a.floor)}`),
-            e('span', { style:{color:startCol, fontWeight:500} }, isSav ? `${Math.round(startPct)} % erreicht` : `${eur(startBal - a.floor)} Puffer`),
+            e('span', null, isSav ? tr('Sparziel {v}', { v: eur(a.goal) }) : tr(acctType(a) === 'credit' ? 'Rahmen {v}' : 'Limit {v}', { v: eur(a.floor) })),
+            e('span', { style:{color:startCol, fontWeight:500} }, isSav ? tr('{p} % erreicht', { p: Math.round(startPct) }) : tr('{v} Puffer', { v: eur(startBal - a.floor) })),
           )
         ),
 
         // ── Projected end balance (secondary, smaller) ──
         editBal !== k && e('div', { style:{marginTop:10, paddingTop:8, borderTop:'0.5px solid var(--border)'} },
           e('div', { style:{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:4} },
-            e('span', { style:{fontSize: isMobile ? 12 : 10, color:'var(--text2)', fontWeight:500, letterSpacing:'0.4px'} }, 'Prognose'),
+            e('span', { style:{fontSize: isMobile ? 12 : 10, color:'var(--text2)', fontWeight:500, letterSpacing:'0.4px'} }, tr('Prognose')),
             e('span', { style:{fontFamily:'var(--mono)', fontSize: isMobile ? 17 : 15, fontWeight:600, color:endCol} }, eur(endBal)),
           ),
           endPct !== null && e('div', null,
@@ -1757,7 +1914,7 @@ function App() {
               e('div', { style:{height:'100%', width:`${endPct}%`, borderRadius:2, background:endBarBg, opacity:0.6} })
             ),
             e('div', { style:{textAlign:'right', fontSize: isMobile ? 12 : 10, color:endCol} },
-              isSav ? `${Math.round(endPct)} %` : `${eur(endBal - a.floor)} Puffer`
+              isSav ? `${Math.round(endPct)} %` : tr('{v} Puffer', { v: eur(endBal - a.floor) })
             )
           )
         )
@@ -1769,7 +1926,7 @@ function App() {
     e('div', { style:{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap', marginBottom: tags.length ? 10 : 0} },
       e('div', { style:{display:'flex', justifyContent:'space-between', alignItems:'center', width:'100%', marginBottom: tags.length ? 8 : 0} },
       e('span', { className:'lbl' }, 'Tags'),
-      e('button', { className:'ibtn', onClick:()=>setTagForm(null), title:'Schließen' }, '✕'),
+      e('button', { className:'ibtn', onClick:()=>setTagForm(null), title:tr('Schließen') }, '✕'),
     ),
       ...tags.map(tag =>
         e('span', { key:tag.id,
@@ -1788,46 +1945,46 @@ function App() {
       ),
     ),
     e('div', { style:{display:'flex', gap:8, alignItems:'center', flexWrap:'wrap'} },
-      e('input', { placeholder:'Neuer Tag', value:tagForm.label || '',
+      e('input', { placeholder:tr('Neuer Tag'), value:tagForm.label || '',
         style:{fontSize:13, padding:'4px 8px', flex:'1 1 140px', width:'auto'},
         onChange: ev => setTagForm(f => ({...f, label: ev.target.value})),
         onKeyDown: ev => { if(ev.key==='Enter') addTag(); if(ev.key==='Escape') setTagForm(null); }
       }),
-      e('input', { type:'color', value:tagForm.color || '#4f9cf9', title:'Farbe',
+      e('input', { type:'color', value:tagForm.color || '#4f9cf9', title:tr('Farbe'),
         style:{width: isMobile ? 52 : 36, height: isMobile ? 44 : 30, padding:2, cursor:'pointer'},
         onChange: ev => setTagForm(f => ({...f, color: ev.target.value}))
       }),
-      e('button', { onClick:addTag }, tagForm?.editingTagId ? '✓ Speichern' : '+ Hinzufügen'),
+      e('button', { onClick:addTag }, tagForm?.editingTagId ? tr('✓ Speichern') : tr('+ Hinzufügen')),
     )
   );
 
   // ── New account form panel ───────────────────────────────
   const newAcctPanel = newAcctForm && e('div', { className:'panel', style:{padding:'14px 16px', display:'flex', gap:10, alignItems:'flex-end', flexWrap:'wrap'} },
-    e('span', { className:'lbl', style:{alignSelf:'center'} }, '+ Neues Konto'),
+    e('span', { className:'lbl', style:{alignSelf:'center'} }, tr('+ Neues Konto')),
     e('div', { style:{display:'flex', flexDirection:'column', gap:4} },
       e('label', { style:{fontSize:11, color:'var(--text3)'} }, 'Name'),
-      e('input', { placeholder:'z.B. Sparkasse', value:newAcctForm.label,
+      e('input', { placeholder:tr('z.B. Sparkasse'), value:newAcctForm.label,
         onChange: ev => setNewAcctForm(f => ({...f, label:ev.target.value})) })
     ),
     e('div', { style:{display:'flex', flexDirection:'column', gap:4} },
-      e('label', { style:{fontSize:11, color:'var(--text3)'} }, 'Farbe'),
+      e('label', { style:{fontSize:11, color:'var(--text3)'} }, tr('Farbe')),
       e('input', { type:'color', value:newAcctForm.color, style:{width:44, height:32, padding:2, cursor:'pointer'},
         onChange: ev => setNewAcctForm(f => ({...f, color:ev.target.value})) })
     ),
     e('div', { style:{display:'flex', flexDirection:'column', gap:4} },
-      e('label', { style:{fontSize:11, color:'var(--text3)'} }, 'Dispo-Limit'),
+      e('label', { style:{fontSize:11, color:'var(--text3)'} }, tr('Dispo-Limit')),
       e('input', { placeholder:'-1000', value:newAcctForm.floor, style:{width:90, fontFamily:'var(--mono)', textAlign:'right'},
         onChange: ev => setNewAcctForm(f => ({...f, floor:ev.target.value})) })
     ),
     e('div', { style:{display:'flex', flexDirection:'column', gap:4} },
-      e('label', { style:{fontSize:11, color:'var(--text3)'} }, 'Anfangsstand'),
+      e('label', { style:{fontSize:11, color:'var(--text3)'} }, tr('Anfangsstand')),
       e('input', { placeholder:'0', value:newAcctForm.initBal, style:{width:100, fontFamily:'var(--mono)', textAlign:'right'},
         onChange: ev => setNewAcctForm(f => ({...f, initBal:ev.target.value})),
         onKeyDown: ev => { if(ev.key==='Enter') addAcct(); if(ev.key==='Escape') setNewAcctForm(null); }
       })
     ),
     e('div', { style:{display:'flex', gap:8, alignSelf:'flex-end'} },
-      e('button', { onClick:addAcct }, '✓ Hinzufügen'),
+      e('button', { onClick:addAcct }, tr('✓ Hinzufügen')),
       e('button', { onClick:()=>setNewAcctForm(null) }, '✕'),
     )
   );
@@ -1858,9 +2015,9 @@ function App() {
       booked
         ? e('div', { style:{display:'flex', alignItems:'center', gap:4} },
             e('span', { style:{fontSize: isMobile ? 13 : 11, color:'var(--ok)', border:'1px solid var(--ok)',
-              borderRadius:8, padding:'1px 7px', whiteSpace:'nowrap'} }, '✓ gebucht'),
+              borderRadius:8, padding:'1px 7px', whiteSpace:'nowrap'} }, tr('✓ gebucht')),
             e('button', { className:'ibtn', onClick:()=>unbookBudgetItem(item),
-              title:'Buchung dieses Monats entfernen' }, '↺'),
+              title:tr('Buchung dieses Monats entfernen') }, '↺'),
           )
         : isBooking
           ? e('div', { style:{display:'flex', alignItems:'center', gap:4} },
@@ -1871,8 +2028,8 @@ function App() {
               e('button', { className:'ibtn', onClick:()=>{ setBudgetBookId(null); setBudgetBookDate(''); } }, '✕'),
             )
           : e('button', { style:{fontSize:11, padding:'4px 8px', whiteSpace:'nowrap'}, onClick:()=>startBookBudgetItem(item),
-              title:'Als Buchung übernehmen' }, '→ Buchen'),
-      !isBooking && e('button', { className:'ibtn', onClick:()=>deleteBudgetItem(item.id), title:'Vorlage löschen' }, '✕'),
+              title:tr('Als Buchung übernehmen') }, tr('→ Buchen')),
+      !isBooking && e('button', { className:'ibtn', onClick:()=>deleteBudgetItem(item.id), title:tr('Vorlage löschen') }, '✕'),
     );
   };
 
@@ -1883,18 +2040,18 @@ function App() {
           onClick: () => { setBudgetAddOpen(side); setForm(f => ({ ...f, acct: f.acct || Object.keys(accts)[0] })); },
           style:{ marginTop:8, color, padding:'8px 16px 8px 12px', border:'none',
             background:`color-mix(in srgb, ${color} 12%, transparent)` } },
-        e(Icon, { name:'add', size:20 }), 'Posten hinzufügen');
+        e(Icon, { name:'add', size:20 }), tr('Posten hinzufügen'));
     }
     const ok = !!form.desc && form.amt !== '';
     const keys = ev => { if (ev.key === 'Enter') addBudgetItem(side); if (ev.key === 'Escape') setBudgetAddOpen(null); };
     return e('div', { style:{ display:'flex', flexDirection:'column', gap:10, marginTop:8, padding:'14px',
         background:'var(--bg3)', borderRadius:12 } },
       e('span', { style:{ fontSize:16, fontWeight:600, color:'var(--text)' } },
-        side === 'in' ? 'Neue Einnahme' : 'Neue Ausgabe'),
-      e('input', { placeholder:'Beschreibung', value:form.desc, autoFocus:true,
+        side === 'in' ? tr('Neue Einnahme') : tr('Neue Ausgabe')),
+      e('input', { placeholder:tr('Beschreibung'), value:form.desc, autoFocus:true,
         onChange: ev => setForm(f => ({...f, desc:ev.target.value})), onKeyDown: keys }),
       e('div', { style:{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 } },
-        e('input', { placeholder:'Betrag', value:form.amt, inputMode:'decimal',
+        e('input', { placeholder:tr('Betrag'), value:form.amt, inputMode:'decimal',
           style:{ fontFamily:'var(--mono)', textAlign:'right' },
           onChange: ev => setForm(f => ({...f, amt:ev.target.value})), onKeyDown: keys }),
         e('select', { value:form.acct || Object.keys(accts)[0],
@@ -1903,9 +2060,9 @@ function App() {
         ),
       ),
       e('div', { style:{ display:'flex', justifyContent:'flex-end', gap:8 } },
-        e('button', { type:'button', onClick:()=>setBudgetAddOpen(null) }, 'Abbrechen'),
+        e('button', { type:'button', onClick:()=>setBudgetAddOpen(null) }, tr('Abbrechen')),
         e('button', { type:'button', className:'btn-filled', disabled:!ok, onClick:()=>addBudgetItem(side),
-          style:{ opacity: ok ? 1 : 0.45 } }, e(Icon, { name:'check', size:18 }), 'Hinzufügen'),
+          style:{ opacity: ok ? 1 : 0.45 } }, e(Icon, { name:'check', size:18 }), tr('Hinzufügen')),
       ),
     );
   };
@@ -1917,7 +2074,7 @@ function App() {
       e('span', { style:{fontFamily:'var(--mono)', fontSize:14, fontWeight:600, color} }, eur(Math.abs(total)))
     ),
     rows.length === 0
-      ? e('div', { style:{fontSize:12, color:'var(--text3)', padding:'6px 8px'} }, 'Keine Posten.')
+      ? e('div', { style:{fontSize:12, color:'var(--text3)', padding:'6px 8px'} }, tr('Keine Posten.'))
       : e('div', { style:{display:'flex', flexDirection:'column', gap:2} }, ...rows.map(r => budgetRow(r, color))),
     budgetAddRow(side, form, setForm, color),
   );
@@ -1926,24 +2083,24 @@ function App() {
     // Header: title left, close top-right
     e('div', { style:{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4} },
       e('span', { style:{fontSize:22, fontWeight:600, color:'var(--text)', letterSpacing:0} }, 'Budget'),
-      e('button', { className:'ibtn', onClick:()=>setShowBudget(false), title:'Schließen', style:{marginRight:-8} },
+      e('button', { className:'ibtn', onClick:()=>setShowBudget(false), title:tr('Schließen'), style:{marginRight:-8} },
         e(Icon, { name:'close', size:22 })),
     ),
     // Month switcher + Saldo
     e('div', { style:{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16, flexWrap:'wrap', gap:8} },
       e('div', { style:{display:'flex', alignItems:'center', gap:4, marginLeft:-8} },
-        e('button', { className:'ibtn', onClick:()=>shiftBudgetPeriod(-1), title:'Vorheriger Monat' }, e(Icon, { name:'chevron_left', size:24 })),
+        e('button', { className:'ibtn', onClick:()=>shiftBudgetPeriod(-1), title:tr('Vorheriger Monat') }, e(Icon, { name:'chevron_left', size:24 })),
         e('span', { style:{fontSize: isMobile ? 17 : 15, fontWeight:600, minWidth: isMobile ? 130 : 140, textAlign:'center'} }, budgetPeriodLabel),
-        e('button', { className:'ibtn', onClick:()=>shiftBudgetPeriod(1), title:'Nächster Monat' }, e(Icon, { name:'chevron_right', size:24 })),
+        e('button', { className:'ibtn', onClick:()=>shiftBudgetPeriod(1), title:tr('Nächster Monat') }, e(Icon, { name:'chevron_right', size:24 })),
       ),
       e('div', { style:{display:'flex', alignItems:'baseline', gap:8} },
-        e('span', { style:{fontSize:14, color:'var(--text2)'} }, 'Saldo'),
+        e('span', { style:{fontSize:14, color:'var(--text2)'} }, tr('Saldo')),
         e('span', { style:{fontFamily:'var(--mono)', fontSize:20, fontWeight:700, color:saldoCol} }, eur(budgetSaldo)),
       ),
     ),
     e('div', { style:{display:'flex', gap:isMobile ? 16 : 24, flexWrap:'wrap'} },
-      budgetColumn('Einnahmen', incomeRows, incomeTotal, 'var(--ok)', 'in',  budgetIncomeForm,  setBudgetIncomeForm),
-      budgetColumn('Ausgaben',  expenseRows, expenseTotal, 'var(--bad)', 'out', budgetExpenseForm, setBudgetExpenseForm),
+      budgetColumn(tr('Einnahmen'), incomeRows, incomeTotal, 'var(--ok)', 'in',  budgetIncomeForm,  setBudgetIncomeForm),
+      budgetColumn(tr('Ausgaben'),  expenseRows, expenseTotal, 'var(--bad)', 'out', budgetExpenseForm, setBudgetExpenseForm),
     ),
   );
 
@@ -1952,15 +2109,15 @@ function App() {
     e('span', { style:{ position:'absolute', left: isMobile ? 16 : 10, top:'50%', transform:'translateY(-50%)',
       color:'var(--text2)', pointerEvents:'none', display:'flex' } }, e(Icon, { name:'search', size: isMobile ? 22 : 18 })),
     e('input', { type:'text', inputMode:'search', enterKeyHint:'search', value:search,
-      placeholder: isMobile ? 'Suchen…' : 'Suchen (Text, Betrag, Datum, Tag)…',
-      'aria-label':'Transaktionen durchsuchen',
+      placeholder: isMobile ? tr('Suchen…') : tr('Suchen (Text, Betrag, Datum, Tag)…'),
+      'aria-label':tr('Transaktionen durchsuchen'),
       onChange: ev => setSearch(ev.target.value),
       onKeyDown: ev => { if (ev.key === 'Escape') setSearch(''); },
       style:{ width:'100%', boxSizing:'border-box', fontSize:14,
         padding: isMobile ? '14px 48px 14px 48px' : '8px 34px 8px 36px', minHeight: isMobile ? 56 : 0,
         borderRadius: 28, border:'none', boxShadow:'none', background:'var(--surface-high)',
         color:'var(--text)', fontFamily:'inherit', outline:'none' } }),
-    search && e('span', { onClick: () => setSearch(''), title:'Suche löschen', role:'button',
+    search && e('span', { onClick: () => setSearch(''), title:tr('Suche löschen'), role:'button',
       style:{ position:'absolute', right: isMobile ? 4 : 9, top:'50%', transform:'translateY(-50%)',
         cursor:'pointer', color:'var(--text2)', display:'flex', alignItems:'center', justifyContent:'center',
         ...(isMobile ? { width:48, height:48 } : {}) } }, e(Icon, { name:'close', size: isMobile ? 22 : 16 })),
@@ -1977,14 +2134,14 @@ function App() {
   });
   const filterSummary = filterActive && e('span', { style:{ fontSize: isMobile ? 13 : 11, color:'var(--text3)',
       marginLeft: isMobile ? 0 : 'auto', fontVariantNumeric:'tabular-nums' } },
-    `${visible.length} von ${txs.length} · Σ `,
+    tr('{n} von {m} · Σ ', { n: visible.length, m: txs.length }),
     e('span', { style:{ color: visibleSum >= 0 ? 'var(--ok)' : 'var(--bad)', fontWeight:600 } },
-      visibleSum.toLocaleString('de-DE', { style:'currency', currency:'EUR' }))
+      eur(visibleSum))
   );
   const filterReset = filterActive && e('button', { type:'button', className:'chip',
     onClick: () => { setFilterTags([]); setSearch(''); },
     style: isMobile ? { border:'none', color:'var(--primary)' } : { height:28, fontSize:13, padding:'0 10px', border:'none', color:'var(--primary)' } },
-    e(Icon, { name:'close', size:18 }), 'Zurücksetzen');
+    e(Icon, { name:'close', size:18 }), tr('Zurücksetzen'));
 
   const filterBar = isMobile
     ? e('div', { style:{ display:'flex', flexDirection:'column', gap:10, padding:'12px 14px',
@@ -2010,7 +2167,7 @@ function App() {
     ),
 
     e('span', {style:{display:'flex', alignItems:'center', gap:6, fontSize:12, color:'var(--text3)'}},
-      e('span', {style:{width:18, height:0, borderTop:'1.5px dashed rgba(140,140,140,0.5)', display:'inline-block'}}), 'Überziehungslimits'
+      e('span', {style:{width:18, height:0, borderTop:'1.5px dashed rgba(140,140,140,0.5)', display:'inline-block'}}), tr('Überziehungslimits')
     ),
   );
 
@@ -2019,20 +2176,15 @@ function App() {
     e(BalanceChart, { data: chart, accts, height: isMobile ? 320 : 400 })  );
 
   // ── Transaction table ────────────────────────────────────────────────────
-  const addRowStyle = isMobile
-    ? {display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, padding:'12px 14px',
-       background:'var(--bg3)', borderBottom:'0.5px solid var(--border)', alignItems:'center', overflow:'visible'}
-    : {display:'grid', gridTemplateColumns:'115px 95px 180px 1fr 80px auto', gap:8, padding:'12px 14px',
-       background:'var(--bg3)', borderBottom:'0.5px solid var(--border)', alignItems:'center', overflow:'visible'};
   const amtField = e('div', { style:{ position:'relative' } },
-    e('input', { placeholder:'Betrag', value:form.amt, inputMode: isMobile ? 'decimal' : undefined,
+    e('input', { placeholder:tr('Betrag'), value:form.amt, inputMode: isMobile ? 'decimal' : undefined,
       style:{fontFamily:'var(--mono)', textAlign:'left', paddingRight: isMobile ? 56 : 46},
       onChange: ev => setForm(f=>({...f, amt:ev.target.value})),
       onKeyDown: ev => ev.key==='Enter' && add() }),
     e(CalcPopover, { value: form.amt, onInsert: v => setForm(f=>({...f, amt:v})) })
   );
   // Material-style checkbox (real <input type=checkbox> for accessibility, custom-drawn box)
-  const instantToggle = e('label', { className:'mcheck', title:'Direkt auf den Kontostand anwenden – ohne Eintrag in der Liste',
+  const instantToggle = e('label', { className:'mcheck', title:tr('Direkt auf den Kontostand anwenden – ohne Eintrag in der Liste'),
       style:{ display:'flex', alignItems:'center', gap: isMobile ? 4 : 8, cursor:'pointer', userSelect:'none',
         width:'auto', minWidth:0, minHeight: isMobile ? 48 : 0, fontSize: isMobile ? 15 : 12, color:'var(--text)' } },
     e('input', { type:'checkbox', checked: !!form.instant,
@@ -2049,15 +2201,14 @@ function App() {
             strokeWidth:3.2, strokeLinecap:'round', strokeLinejoin:'round', 'aria-hidden':true },
           e('path', { d:'M5 12.5l4.5 4.5L19 7.5' })))),
     e('span', { style:{ display:'flex', flexDirection:'column', lineHeight:1.25, minWidth:0 } },
-      e('span', { style:{ fontWeight:500, whiteSpace:'nowrap' } }, 'Sofort buchen')),
+      e('span', { style:{ fontWeight:500, whiteSpace:'nowrap' } }, tr('Sofort buchen'))),
   );
-  const addLabel = isTransfer ? (form.instant ? 'Sofort umbuchen' : 'Umbuchen') : (form.instant ? '✓ Sofort buchen' : '✓ Hinzufügen');
 
   // M3 segmented button: Buchung | Umbuchung
-  const kindSeg = e('div', { role:'radiogroup', 'aria-label':'Art',
+  const kindSeg = e('div', { role:'radiogroup', 'aria-label':tr('Art'),
       style:{ display:'flex', border:'1px solid var(--border2)', borderRadius:20, overflow:'hidden',
         width: isMobile ? '100%' : 'auto', flexShrink:0 } },
-    ...[['tx','Buchung'],['transfer','Umbuchung']].map(([k, label], i) => {
+    ...[['tx',tr('Buchung')],['transfer',tr('Umbuchung')]].map(([k, label], i) => {
       const on = (form.kind || 'tx') === k;
       return e('button', { key:k, type:'button', role:'radio', 'aria-checked':on, className:'pillx',
           onClick: () => setForm(f => ({ ...f, kind:k })),
@@ -2070,27 +2221,27 @@ function App() {
     }));
   const acctOptions = exclude => Object.entries(accts).filter(([k]) => k !== exclude)
     .map(([k,v]) => e('option', { key:k, value:k }, v.label));
-  const swapBtn = e('button', { type:'button', className:'ibtn', title:'Konten tauschen',
+  const swapBtn = e('button', { type:'button', className:'ibtn', title:tr('Konten tauschen'),
       onClick: () => setForm(f => ({ ...f, acct: formTo, to: f.acct })) }, e(Icon, { name:'swap_horiz', size: isMobile ? 24 : 18 }));
-  const fromSelect = e('select', { value:form.acct, 'aria-label':'Von Konto',
+  const fromSelect = e('select', { value:form.acct, 'aria-label':tr('Von Konto'),
       onChange: ev => setForm(f => ({ ...f, acct:ev.target.value, to: f.to === ev.target.value ? f.acct : f.to })) },
     ...Object.entries(accts).map(([k,v]) => e('option', { key:k, value:k }, v.label)));
-  const toSelect = e('select', { value:formTo, 'aria-label':'Nach Konto',
+  const toSelect = e('select', { value:formTo, 'aria-label':tr('Nach Konto'),
       onChange: ev => setForm(f => ({ ...f, to:ev.target.value })) }, ...acctOptions(form.acct));
   const fromTo = e('div', { style:{ display:'grid', gridTemplateColumns:'1fr auto 1fr', gap: isMobile ? 4 : 2, alignItems:'center' } },
     e('div', { style:{ display:'flex', flexDirection:'column', gap:4 } },
-      isMobile && e('span', { style:{ fontSize:12, color:'var(--text2)', fontWeight:500 } }, 'Von'), fromSelect),
+      isMobile && e('span', { style:{ fontSize:12, color:'var(--text2)', fontWeight:500 } }, tr('Von')), fromSelect),
     e('div', { style:{ alignSelf:'end', paddingBottom: isMobile ? 0 : 0 } }, swapBtn),
     e('div', { style:{ display:'flex', flexDirection:'column', gap:4 } },
-      isMobile && e('span', { style:{ fontSize:12, color:'var(--text2)', fontWeight:500 } }, 'Nach'), toSelect));
+      isMobile && e('span', { style:{ fontSize:12, color:'var(--text2)', fontWeight:500 } }, tr('Nach')), toSelect));
 
   const addRowMobile = !showAdd
     ? null
     : e('div', { id:'add-form', style:{ display:'flex', flexDirection:'column', gap:12, padding:'16px 14px',
         background:'var(--bg3)', borderBottom:'1px solid var(--border)', scrollMarginTop:12, borderRadius:'12px 12px 0 0' } },
         e('div', { style:{ display:'flex', justifyContent:'space-between', alignItems:'center' } },
-          e('span', { style:{ fontSize:22, fontWeight:600, color:'var(--text)', lineHeight:1.27, letterSpacing:0 } }, 'Neue Buchung'),
-          e('button', { className:'ibtn', onClick:()=>setShowAdd(false), title:'Schließen' }, e(Icon, { name:'close', size:22 }))),
+          e('span', { style:{ fontSize:22, fontWeight:600, color:'var(--text)', lineHeight:1.27, letterSpacing:0 } }, tr('Neue Buchung')),
+          e('button', { className:'ibtn', onClick:()=>setShowAdd(false), title:tr('Schließen') }, e(Icon, { name:'close', size:22 }))),
         kindSeg,
         isTransfer
           ? e(React.Fragment, null,
@@ -2105,7 +2256,7 @@ function App() {
                 ...Object.entries(accts).map(([k,v]) => e('option',{key:k, value:k}, v.label))
               ),
             ),
-        e('input', { placeholder: isTransfer ? 'Beschreibung (optional)' : 'Beschreibung', value:form.desc,
+        e('input', { placeholder: isTransfer ? tr('Beschreibung (optional)') : tr('Beschreibung'), value:form.desc,
           onChange: ev => setForm(f=>({...f, desc:ev.target.value})),
           onKeyDown: ev => ev.key==='Enter' && add() }),
         isTransfer ? amtField
@@ -2117,49 +2268,38 @@ function App() {
           e('button', { onClick:add, disabled: !canAdd, className:'btn-filled',
             style:{ flexShrink:0, opacity: canAdd ? 1 : 0.45 } },
             e(Icon, { name: isTransfer ? 'swap_horiz' : 'check', size:20 }),
-            isTransfer ? (form.instant ? 'Sofort umbuchen' : 'Umbuchen') : (form.instant ? 'Sofort buchen' : 'Hinzufügen')),
+            isTransfer ? (form.instant ? tr('Sofort umbuchen') : tr('Umbuchen')) : (form.instant ? tr('Sofort buchen') : tr('Hinzufügen'))),
         ),
         form.instant && e('span', { style:{ fontSize:13, color:'var(--text2)', marginTop:-4 } },
-          'Wird direkt auf den Kontostand angewendet – kein Eintrag in der Liste.'),
+          tr('Wird direkt auf den Kontostand angewendet – kein Eintrag in der Liste.')),
       );
   const dateField = e('input', { type:'date', value:form.date, disabled: !!form.instant,
-      'aria-label':'Datum', style:{ opacity: form.instant ? 0.4 : 1 },
-      title: form.instant ? 'Bei Sofort-Buchung nicht nötig' : undefined,
+      'aria-label':tr('Datum'), style:{ opacity: form.instant ? 0.4 : 1 },
+      title: form.instant ? tr('Bei Sofort-Buchung nicht nötig') : undefined,
       onChange: ev => setForm(f=>({...f, date:ev.target.value})) });
   const addRowDesk = e('div', { style:{ display:'flex', flexDirection:'column', gap:10, padding:'14px 16px',
       background:'var(--bg3)', borderBottom:'1px solid var(--border)', borderRadius:'12px 12px 0 0' } },
     e('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' } },
-      e('span', { style:{ fontSize:18, fontWeight:600, color:'var(--text)' } }, 'Neue Buchung'),
+      e('span', { style:{ fontSize:18, fontWeight:600, color:'var(--text)' } }, tr('Neue Buchung')),
       kindSeg),
     e('div', { style:{ display:'grid', gap:10, gridTemplateColumns:'minmax(150px,1fr) minmax(120px,1fr)' } },
       dateField, amtField),
     isTransfer ? fromTo : e('div', { style:{ display:'grid', gap:10, gridTemplateColumns:'minmax(0,1fr) minmax(0,1fr)' } },
-      e('select', { value:form.acct, 'aria-label':'Konto', onChange: ev => setForm(f=>({...f, acct:ev.target.value})) },
+      e('select', { value:form.acct, 'aria-label':tr('Konto'), onChange: ev => setForm(f=>({...f, acct:ev.target.value})) },
         ...Object.entries(accts).map(([k,v]) => e('option',{key:k, value:k}, v.label))),
       e(TagDropdown, { selectedTags:form.tags||[], tags, onChange: t => setForm(f=>({...f, tags:t})) })),
-    e('input', { placeholder: isTransfer ? 'Beschreibung (optional)' : 'Beschreibung', value:form.desc,
+    e('input', { placeholder: isTransfer ? tr('Beschreibung (optional)') : tr('Beschreibung'), value:form.desc,
       onChange: ev => setForm(f=>({...f, desc:ev.target.value})),
       onKeyDown: ev => ev.key==='Enter' && add() }),
     e('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' } },
       instantToggle,
       e('button', { onClick:add, disabled: !canAdd, className:'btn-filled', style:{ opacity: canAdd ? 1 : 0.45, minWidth:150 } },
         e(Icon, { name: isTransfer ? 'swap_horiz' : 'check', size:18 }),
-        isTransfer ? (form.instant ? 'Sofort umbuchen' : 'Umbuchen') : (form.instant ? 'Sofort buchen' : 'Hinzufügen'))),
+        isTransfer ? (form.instant ? tr('Sofort umbuchen') : tr('Umbuchen')) : (form.instant ? tr('Sofort buchen') : tr('Hinzufügen')))),
     form.instant && e('span', { style:{ fontSize:12, color:'var(--text2)' } },
-      'Betrag wird direkt auf den Kontostand angewendet – kein Eintrag in der Liste.'),
+      tr('Betrag wird direkt auf den Kontostand angewendet – kein Eintrag in der Liste.')),
   );
   const addRow = isMobile ? addRowMobile : addRowDesk;
-
-  const thead = e('thead', null,
-    e('tr', { style:{borderBottom:'0.5px solid var(--border)'} },
-      e('th', {onClick:()=>tog('date'), style:{width:84}}, 'Datum', arr('date')),
-      e('th', {onClick:()=>tog('acct'), style:{width:132}}, 'Konto', arr('acct')),
-      e('th', { style:{width:140, overflow:'visible'} }, 'Tags'),
-      e('th', {onClick:()=>tog('desc'), className:'hide-mobile'}, 'Beschreibung', arr('desc')),
-      e('th', {onClick:()=>tog('amt'), style:{width:96, textAlign:'right'}}, 'Betrag', arr('amt')),
-      e('th', {style:{width:146}}),
-    )
-  );
 
   const acctPill = (k, size = 12) => {
     const ink = inkColor(accts[k]?.color ?? '#888888', dark);
@@ -2172,97 +2312,17 @@ function App() {
     e('span', { style:{ display:'inline-flex', alignItems:'center', gap:2, color:'var(--text2)' } },
       e(Icon, { name:'arrow_forward', size: size + 2 }), stacked && acctPill(tx.to, size)),
     !stacked && acctPill(tx.to, size));
-  const editFromTo = () => e('div', { style:{ display:'flex', flexDirection:'column', gap:6 } },
-    e('select', { value:editRow.acct, 'aria-label':'Von Konto',
-      onChange: ev => setEditRow(r => ({ ...r, acct:ev.target.value, to: r.to === ev.target.value ? r.acct : r.to })) },
-      ...Object.entries(accts).map(([k,v]) => e('option',{key:k,value:k}, v.label))),
-    e('select', { value:editRow.to, 'aria-label':'Nach Konto',
-      onChange: ev => setEditRow(r => ({ ...r, to:ev.target.value })) },
-      ...Object.entries(accts).filter(([k]) => k !== editRow.acct).map(([k,v]) => e('option',{key:k,value:k}, v.label))));
-
-  // ── Desktop table body ──
-  const tbody = e('tbody', null,
-    ...sorted.map(tx => {
-      const isEditing = editRow?.id === tx.id;
-      const [,mo,d] = tx.date.split('-');
-      if (isEditing) return e('tr', { key:tx.id, className:'erow' },
-        e('td', null, e('input', { type:'date', value:editRow.date,
-          onChange: ev => setEditRow(r=>({...r, date:ev.target.value})) })),
-        e('td', null, editRow.to ? editFromTo() : e('select', { value:editRow.acct, onChange: ev => setEditRow(r=>({...r, acct:ev.target.value})) },
-          ...Object.entries(accts).map(([k,v]) => e('option',{key:k,value:k}, v.label))
-        )),
-        e('td', null,
-          e(TagDropdown, { selectedTags:editRow.tags||[], tags,
-            onChange: t => setEditRow(r=>({...r, tags:t})) })
-        ),
-        e('td', null,
-          e('input', { value:editRow.desc,
-            onChange: ev => setEditRow(r=>({...r, desc:ev.target.value})),
-            onKeyDown: ev => { if(ev.key==='Enter') saveEdit(); if(ev.key==='Escape') setEditRow(null); } })
-        ),
-        e('td', null, e('input', { value:editRow.amt, style:{fontFamily:'var(--mono)', textAlign:'right'},
-          onChange: ev => setEditRow(r=>({...r, amt:ev.target.value})),
-          onKeyDown: ev => { if(ev.key==='Enter') saveEdit(); if(ev.key==='Escape') setEditRow(null); } })),
-        e('td', { style:{textAlign:'center', whiteSpace:'nowrap'} },
-          e('button', { className:'ibtn ok', onClick:saveEdit }, e('span',{style:{display:'inline-block',lineHeight:1}},'✓')),
-          e('button', { className:'ibtn', onClick:()=>setEditRow(null) }, e('span',{style:{display:'inline-block',lineHeight:1}},'✕')),
-        )
-      );
-      return e(React.Fragment, { key:tx.id }, e('tr', { style: dupId === tx.id ? { background:'var(--bg3)' } : undefined },
-        e('td', { style:{fontFamily:'var(--mono)', fontSize:12, color:'var(--text2)'} }, `${d}.${mo}.`),
-        e('td', null, tx.to ? transferPills(tx, 11, true) : acctPill(tx.acct)),
-        e('td', { style:{verticalAlign:'middle'} },
-          e('div', { style:{display:'flex', flexDirection:'row', gap:4, flexWrap:'wrap'} },
-            ...(tx.tags||[]).slice(0,2).map(tid => {
-              const tag = tags.find(t=>t.id===tid);
-              return tag ? e('span', {key:tid, style:{fontSize:11, padding:'1px 7px', borderRadius:8,
-                ...pillStyle(tag.color, dark),
-                whiteSpace:'nowrap', display:'inline-block'}}, tag.label) : null;
-            })
-          )
-        ),
-        e('td', { style:{overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:0} }, tx.desc || (tx.to ? transferDesc(tx.acct, tx.to) : '')),
-        e('td', { style:{textAlign:'right', fontFamily:'var(--mono)', color: tx.to ? 'var(--text2)' : tx.amt>=0?'var(--ok)':'var(--bad)'},
-          title: tx.to ? 'Umbuchung' : undefined }, eur(tx.to ? Math.abs(tx.amt) : tx.amt)),
-        e('td', { style:{whiteSpace:'nowrap', padding:'4px 6px'} },
-          e('div', { style:{display:'flex', justifyContent:'flex-end', gap:2} },
-            e('button', { className:'ibtn', onClick:()=>buchen(tx), title:'Buchen', style:{color:'var(--primary)', padding:'6px'} }, e(Icon, { name:'check', size:18 })),
-            e('button', { className:'ibtn', onClick:()=> dupId === tx.id ? cancelDup() : startDup(tx), title:'Duplizieren',
-              style:{ padding:'6px', ...(dupId === tx.id ? { color:'var(--primary)', background:'var(--secondary-container)' } : {}) } },
-              e(Icon, { name:'copy', size:18 })),
-            e('button', { className:'ibtn', onClick:()=>startEdit(tx), title:'Bearbeiten', style:{padding:'6px'} }, e(Icon, { name:'edit', size:18 })),
-            e('button', { className:'ibtn', onClick:()=>del(tx.id), title:'Löschen', style:{padding:'6px', color:'var(--bad)'} }, e(Icon, { name:'delete', size:18 })),
-          )
-        )
-      ),
-      // Duplicate: full-width row below, so nothing overlaps
-      dupId === tx.id && e('tr', { className:'erow' },
-        e('td', { colSpan:6, style:{padding:'10px 12px'} },
-          e('div', { style:{display:'flex', alignItems:'center', justifyContent:'flex-end', gap:10, flexWrap:'wrap'} },
-            e('span', { style:{fontSize:13, color:'var(--text2)'} }, `„${tx.desc || (tx.to ? transferDesc(tx.acct, tx.to) : '')}“ kopieren – neues Datum:`),
-            e('input', { type:'date', value:dupDate, autoFocus:true, style:{width:170},
-              onChange: ev => setDupDate(ev.target.value),
-              onKeyDown: ev => { if (ev.key === 'Enter' && dupDate) confirmDup(tx); if (ev.key === 'Escape') cancelDup(); } }),
-            e('button', { onClick:cancelDup }, 'Abbrechen'),
-            e('button', { className:'btn-filled', onClick:()=>confirmDup(tx), disabled:!dupDate, style:{ opacity: dupDate ? 1 : 0.45 } },
-              e(Icon, { name:'check', size:18 }), 'Kopieren'),
-          )
-        )
-      ));
-    })
-  );
-
   // ── Mobile card list ──
   const mobileSortBar = e('div', { style:{display:'flex', gap:8, padding:'10px 14px', borderBottom:'0.5px solid var(--border)', alignItems:'center'} },
-    e('span', { style:{fontSize:13, color:'var(--text3)'} }, 'Sortieren'),
+    e('span', { style:{fontSize:13, color:'var(--text3)'} }, tr('Sortieren')),
     e('select', { value:sort.by, style:{flex:1},
       onChange: ev => setSort(s => ({ by: ev.target.value, dir: s.dir })) },
-      e('option', {value:'date'}, 'Datum'),
-      e('option', {value:'acct'}, 'Konto'),
-      e('option', {value:'desc'}, 'Beschreibung'),
-      e('option', {value:'amt'},  'Betrag'),
+      e('option', {value:'date'}, tr('Datum')),
+      e('option', {value:'acct'}, tr('Konto')),
+      e('option', {value:'desc'}, tr('Beschreibung')),
+      e('option', {value:'amt'},  tr('Betrag')),
     ),
-    e('button', { onClick:()=>setSort(s=>({...s, dir: s.dir==='asc'?'desc':'asc'})), title:'Richtung umkehren',
+    e('button', { onClick:()=>setSort(s=>({...s, dir: s.dir==='asc'?'desc':'asc'})), title:tr('Richtung umkehren'),
       style:{minWidth:52, fontSize:18} },
       e(Icon, { name: sort.dir === 'asc' ? 'arrow_upward' : 'arrow_downward', size:22 })
     ),
@@ -2274,7 +2334,7 @@ function App() {
   const mobileList = e('div', null,
     mobileSortBar,
     sorted.length === 0 && e('div', { style:{padding:'24px 14px', textAlign:'center', color:'var(--text3)', fontSize:15} },
-      filterActive ? 'Keine Treffer.' : 'Keine Buchungen.'),
+      filterActive ? tr('Keine Treffer.') : tr('Keine Buchungen.')),
     ...sorted.map(tx => {
       const isEditing = editRow?.id === tx.id;
       const isOpen    = openTx === tx.id || dupId === tx.id;
@@ -2286,16 +2346,16 @@ function App() {
       if (isEditing) return e('div', { key:tx.id,
         style:{padding:'14px', borderBottom:'0.5px solid var(--border)', background:'var(--bg3)',
                display:'flex', flexDirection:'column', gap:10} },
-        e('span', { style:{ fontSize:18, fontWeight:600, color:'var(--text)' } }, editRow.to ? 'Umbuchung bearbeiten' : 'Buchung bearbeiten'),
+        e('span', { style:{ fontSize:18, fontWeight:600, color:'var(--text)' } }, editRow.to ? tr('Umbuchung bearbeiten') : tr('Buchung bearbeiten')),
         editRow.to
           ? e(React.Fragment, null,
               e('input', { type:'date', value:editRow.date, onChange: ev => setEditRow(r=>({...r, date:ev.target.value})) }),
               e('div', { style:{display:'grid', gridTemplateColumns:'1fr auto 1fr', gap:4, alignItems:'center'} },
-                e('select', { value:editRow.acct, 'aria-label':'Von Konto',
+                e('select', { value:editRow.acct, 'aria-label':tr('Von Konto'),
                   onChange: ev => setEditRow(r => ({ ...r, acct:ev.target.value, to: r.to === ev.target.value ? r.acct : r.to })) },
                   ...Object.entries(accts).map(([k,v]) => e('option',{key:k,value:k}, v.label))),
                 e('span', { style:{ color:'var(--text2)', display:'flex', padding:'0 4px' } }, e(Icon, { name:'arrow_forward', size:22 })),
-                e('select', { value:editRow.to, 'aria-label':'Nach Konto', onChange: ev => setEditRow(r => ({ ...r, to:ev.target.value })) },
+                e('select', { value:editRow.to, 'aria-label':tr('Nach Konto'), onChange: ev => setEditRow(r => ({ ...r, to:ev.target.value })) },
                   ...Object.entries(accts).filter(([k]) => k !== editRow.acct).map(([k,v]) => e('option',{key:k,value:k}, v.label)))))
           : e('div', { style:{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10} },
           e('input', { type:'date', value:editRow.date,
@@ -2305,7 +2365,7 @@ function App() {
             ...Object.entries(accts).map(([k,v]) => e('option',{key:k,value:k}, v.label))
           ),
         ),
-        e('input', { value:editRow.desc, placeholder:'Beschreibung',
+        e('input', { value:editRow.desc, placeholder:tr('Beschreibung'),
           onChange: ev => setEditRow(r=>({...r, desc:ev.target.value})),
           onKeyDown: ev => { if(ev.key==='Enter') saveEdit(); if(ev.key==='Escape') setEditRow(null); } }),
         !editRow.to && e(TagDropdown, { selectedTags:editRow.tags||[], tags,
@@ -2314,9 +2374,9 @@ function App() {
           onChange: ev => setEditRow(r=>({...r, amt:ev.target.value})),
           onKeyDown: ev => { if(ev.key==='Enter') saveEdit(); if(ev.key==='Escape') setEditRow(null); } }),
         e('div', { style:{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10} },
-          e('button', { onClick:()=>setEditRow(null) }, 'Abbrechen'),
+          e('button', { onClick:()=>setEditRow(null) }, tr('Abbrechen')),
           e('button', { onClick:()=>{ saveEdit(); setOpenTx(null); },
-            style:{ fontWeight:600, background:'var(--primary)', color:'var(--on-primary)', border:'none' } }, '✓ Speichern'),
+            style:{ fontWeight:600, background:'var(--primary)', color:'var(--on-primary)', border:'none' } }, tr('✓ Speichern')),
         )
       );
 
@@ -2330,7 +2390,7 @@ function App() {
             e('div', { style:{fontSize:16, fontWeight:500, color:'var(--text)', lineHeight:1.3,
               overflow:'hidden', display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical'} }, tx.desc || (tx.to ? transferDesc(tx.acct, tx.to) : '')),
             e('div', { style:{display:'flex', alignItems:'center', gap:6, flexWrap:'wrap'} },
-              e('span', { style:{fontFamily:'var(--mono)', fontSize:13, color:'var(--text2)'} }, `${d}.${mo}.`),
+              e('span', { style:{fontFamily:'var(--mono)', fontSize:13, color:'var(--text2)'} }, fmtDayMonth(tx.date)),
               tx.to ? transferPills(tx, 12) : e('span', { style:{fontSize:12, padding:'2px 8px', borderRadius:8,
                 background:hexRgba(acctInk, dark ? 0.16 : 0.10), color:acctInk, fontWeight:500} }, acctLabel),
               ...(tx.tags||[]).slice(0,2).map(tid => {
@@ -2345,25 +2405,25 @@ function App() {
               tx.to && e(Icon, { name:'swap_horiz', size:18 }), eur(tx.to ? Math.abs(tx.amt) : tx.amt)),
             e('span', { style:{color:'var(--text2)', display:'flex'} }, e(Icon, { name: isOpen ? 'expand_less' : 'expand_more', size:20 })),
           ),
-          e('button', { className:'ibtn tick', title: tx.to ? 'Umbuchung ausführen' : 'Buchen',
-              'aria-label': tx.to ? 'Umbuchung ausführen' : 'Buchen',
+          e('button', { className:'ibtn tick', title: tx.to ? tr('Umbuchung ausführen') : tr('Buchen'),
+              'aria-label': tx.to ? tr('Umbuchung ausführen') : tr('Buchen'),
               onClick: ev => { ev.stopPropagation(); buchen(tx); } },
             e(Icon, { name:'check', size: isMobile ? 24 : 20 })),
         ),
         // Action bar
         isOpen && dupId !== tx.id && e('div', { style:{display:'flex', gap:8, padding:'0 14px 12px'} },
-          actBtn('content_copy', 'Kopieren',   () => startDup(tx)),
-          actBtn('edit', 'Bearbeiten', () => startEdit(tx)),
-          actBtn('delete', 'Löschen',    () => del(tx.id)),
+          actBtn('content_copy', tr('Kopieren'),   () => startDup(tx)),
+          actBtn('edit', tr('Bearbeiten'), () => startEdit(tx)),
+          actBtn('delete', tr('Löschen'),    () => del(tx.id)),
         ),
         // Duplicate: pick a date
         dupId === tx.id && e('div', { style:{display:'flex', flexDirection:'column', gap:8, padding:'0 14px 12px'} },
-          e('span', { style:{fontSize:13, color:'var(--text2)'} }, 'Kopie anlegen am:'),
+          e('span', { style:{fontSize:13, color:'var(--text2)'} }, tr('Kopie anlegen am:')),
           e('input', { type:'date', value:dupDate, onChange: ev => setDupDate(ev.target.value) }),
           e('div', { style:{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8} },
-            e('button', { onClick:cancelDup }, 'Abbrechen'),
+            e('button', { onClick:cancelDup }, tr('Abbrechen')),
             e('button', { onClick:()=>{ confirmDup(tx); setOpenTx(null); }, disabled:!dupDate,
-              style:{ fontWeight:600, background:'var(--primary)', color:'var(--on-primary)', border:'none', opacity: dupDate ? 1 : 0.45 } }, '✓ Kopieren'),
+              style:{ fontWeight:600, background:'var(--primary)', color:'var(--on-primary)', border:'none', opacity: dupDate ? 1 : 0.45 } }, tr('✓ Kopieren')),
           )
         )
       );
@@ -2377,7 +2437,7 @@ function App() {
 
   const exportData = () => {
     const raw = localStorage.getItem(SK);
-    if (!raw) return alert('Keine Daten zum Exportieren.');
+    if (!raw) return alert(tr('Keine Daten zum Exportieren.'));
     const blob = new Blob([raw], { type:'application/json' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -2392,27 +2452,27 @@ function App() {
     reader.onload = e => {
       try {
         const d = JSON.parse(e.target.result);
-        if (!d.txs || !d.init) return alert('Ungültige Datei.');
+        if (!d.txs || !d.init) return alert(tr('Ungültige Datei.'));
         localStorage.setItem(SK, JSON.stringify(d));
         window.location.reload();
-      } catch { alert('Datei konnte nicht gelesen werden.'); }
+      } catch { alert(tr('Datei konnte nicht gelesen werden.')); }
     };
     reader.readAsText(file);
     ev.target.value = '';
   };
 
   const toolbarActions = [
-    { ico:'label', label:'Tags',   title:'Tags verwalten', on: () => setTagForm(tagForm !== null ? null : {label:'',color:'#4f9cf9'}), active: tagForm !== null },
+    { ico:'label', label:'Tags',   title:tr('Tags verwalten'), on: () => setTagForm(tagForm !== null ? null : {label:'',color:'#4f9cf9'}), active: tagForm !== null },
     { ico:'bar_chart', label:'Budget', title:'Budget',          on: () => setShowBudget(s => !s), active: showBudget },
-    { ico:'add', label:'Konto',  title:'Konto hinzufügen', on: () => setNewAcctForm(newAcctForm ? null : {label:'',color:'#4f9cf9',floor:'0',initBal:'0'}), active: !!newAcctForm },
+    { ico:'add', label:tr('Konto'),  title:tr('Konto hinzufügen'), on: () => setNewAcctForm(newAcctForm ? null : {label:'',color:'#4f9cf9',floor:'0',initBal:'0'}), active: !!newAcctForm },
   ];
   const toolbarTitle = e('div', { style:{display:'flex', flexDirection:'column', gap:1} },
-    e('span', { style:{fontSize: isMobile ? 22 : 22, fontWeight:400, color:'var(--text)', letterSpacing:0, lineHeight:1.27} }, 'Finanzübersicht'),
+    e('span', { style:{fontSize: isMobile ? 22 : 22, fontWeight:400, color:'var(--text)', letterSpacing:0, lineHeight:1.27} }, tr('Finanzübersicht')),
     lastSync && e('span', { style:{fontSize: 12, color:'var(--text2)', letterSpacing:'.4px'} },
-      'Sync: ' + lastSync.toLocaleTimeString('de-DE', {hour:'2-digit', minute:'2-digit'})
+      'Sync: ' + lastSync.toLocaleTimeString(NUMLOC, {hour:'2-digit', minute:'2-digit'})
     ),
   );
-  const settingsBtn = e('button', { className:'ibtn', title:'Einstellungen', onClick:()=>setShowSettings(true),
+  const settingsBtn = e('button', { className:'ibtn', title:tr('Einstellungen'), onClick:()=>setShowSettings(true),
       style:{ marginRight: isMobile ? -8 : 0 } }, e(Icon, { name:'settings', size:24 }));
   const importInput = e('input', { ref:importRef, type:'file', accept:'.json', style:{display:'none'}, onChange:importData });
   const actionChips = toolbarActions.map(a => e('button', { key:a.label, type:'button', onClick:a.on, title:a.title,
@@ -2443,21 +2503,38 @@ function App() {
     e('span', { style:{ display:'flex', flexDirection:'column', lineHeight:1.3, whiteSpace:'normal' } },
       e('span', { style:{ fontSize:16, fontWeight:500 } }, title),
       e('span', { style:{ fontSize:14, color:'var(--text2)', fontWeight:400 } }, sub)));
+  const updateSettings = patch => {
+    const next = { ...settings, ...patch };
+    SETTINGS = next; setSettings(next);
+    persist(txs, init, accts, tags, budget);
+  };
+  const settingSelect = (ico, label, value, options, onChange) => e('label', {
+      style:{ display:'flex', alignItems:'center', gap:16, minHeight:56, margin:'0 -16px', padding:'4px 16px' } },
+    e('span', { style:{ color:'var(--text2)', display:'flex' } }, e(Icon, { name:ico, size:24 })),
+    e('span', { style:{ flex:1, fontSize:16, fontWeight:500, color:'var(--text)' } }, label),
+    e('select', { value, 'aria-label':label, onChange: ev => onChange(ev.target.value),
+        style:{ width:'auto', minWidth:150, maxWidth:'55%' } },
+      ...options.map(([v, l]) => e('option', { key:v, value:v }, l))));
   const settingsDialog = showSettings && e('div', { onClick:()=>setShowSettings(false),
       style:{ position:'fixed', inset:0, zIndex:11000, background:'rgba(0,0,0,0.32)',
         display:'flex', alignItems:'center', justifyContent:'center', padding:24 } },
-    e('div', { role:'dialog', 'aria-modal':true, 'aria-label':'Einstellungen', onClick: ev => ev.stopPropagation(),
+    e('div', { role:'dialog', 'aria-modal':true, 'aria-label':tr('Einstellungen'), onClick: ev => ev.stopPropagation(),
         style:{ width:'min(400px, 100%)', background:'var(--surface-high)', borderRadius:28, padding:'24px 24px 16px',
           boxShadow:'var(--elev3)', display:'flex', flexDirection:'column', gap:8 } },
       e('div', { style:{ display:'flex', flexDirection:'column', alignItems:'center', gap:12, marginBottom:8 } },
         e('span', { style:{ color:'var(--text2)', display:'flex' } }, e(Icon, { name:'settings', size:24 })),
-        e('span', { style:{ fontSize:24, fontWeight:500, color:'var(--text)' } }, 'Einstellungen')),
+        e('span', { style:{ fontSize:24, fontWeight:500, color:'var(--text)' } }, tr('Einstellungen'))),
       e('div', { style:{ padding:'0 16px' } },
-        settingsItem('download', 'Daten exportieren', 'Sicherung als JSON-Datei herunterladen', () => { exportData(); setShowSettings(false); }),
-        settingsItem('upload', 'Daten importieren', 'Aus einer Sicherung wiederherstellen', () => { setShowSettings(false); importRef.current.click(); }),
+        settingSelect('language', tr('Sprache'), LANG,
+          Object.entries(LANGS), v => updateSettings({ lang: v })),
+        settingSelect('payments', tr('Währung'), CUR,
+          CURRENCIES.map(c => [c, currencyLabel(c)]), v => updateSettings({ currency: v })),
+        e('div', { style:{ height:1, background:'var(--border)', margin:'8px 0' } }),
+        settingsItem('download', tr('Daten exportieren'), tr('Sicherung als JSON-Datei herunterladen'), () => { exportData(); setShowSettings(false); }),
+        settingsItem('upload', tr('Daten importieren'), tr('Aus einer Sicherung wiederherstellen'), () => { setShowSettings(false); importRef.current.click(); }),
       ),
       e('div', { style:{ display:'flex', justifyContent:'flex-end', marginTop:8 } },
-        e('button', { onClick:()=>setShowSettings(false) }, 'Schließen')),
+        e('button', { onClick:()=>setShowSettings(false) }, tr('Schließen'))),
     ));
 
   // ── Gesamtsaldo tile ──
@@ -2489,7 +2566,7 @@ function App() {
     e('span', { style:{ fontSize: isMobile ? 13 : 12, color:'var(--on-primary-container)', opacity:.8, fontWeight:500 } }, label),
     e('span', { style:{ fontFamily:'var(--mono)', fontSize: isMobile ? 17 : 16, fontWeight:600, color, whiteSpace:'nowrap' } }, value),
     sub && e('span', { style:{ fontSize:12, color:'var(--on-primary-container)', opacity:.75, whiteSpace:'nowrap' } }, sub));
-  const mkTotalCfgBtn = narrow => e('button', { className:'ibtn', title:'Konten für den Gesamtsaldo wählen',
+  const mkTotalCfgBtn = narrow => e('button', { className:'ibtn', title:tr('Konten für den Gesamtsaldo wählen'),
       'aria-expanded': showTotalCfg, onClick: () => setShowTotalCfg(v => !v),
       style:{ color:'var(--on-primary-container)', margin: narrow ? '-10px -12px -10px 0' : 0 } },
     e(Icon, { name:'settings', size: isMobile ? 22 : 20, fill: showTotalCfg }));
@@ -2498,28 +2575,29 @@ function App() {
       justifyContent:'space-between', gap: narrow ? 14 : 24 } },
     e('div', { style:{ display:'flex', flexDirection:'column', gap:2, minWidth:0 } },
       e('div', { style:{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 } },
-        e('span', { style:{ fontSize: isMobile ? 18 : 16, fontWeight:600 } }, 'Gesamtsaldo'),
+        e('span', { style:{ fontSize: isMobile ? 18 : 16, fontWeight:600 } }, tr('Gesamtsaldo')),
         narrow && mkTotalCfgBtn(true)),
       e('span', { className:'bal', style:{ color: totalNow < 0 ? 'var(--bad)' : 'var(--on-primary-container)' } }, eur(totalNow)),
       e('span', { style:{ fontSize:12, opacity:.75 } },
-        acctKeysAll.length === acctKeysEvery.length ? `${acctKeysAll.length} Konten`
-          : `${acctKeysAll.length} von ${acctKeysEvery.length} Konten · ohne ${acctKeysEvery.filter(k => !inTotal(k)).map(k => accts[k].label).join(', ')}`)),
+        acctKeysAll.length === acctKeysEvery.length ? tr('{n} Konten', { n: acctKeysAll.length })
+          : tr('{n} von {m} Konten · ohne {list}', { n: acctKeysAll.length, m: acctKeysEvery.length,
+              list: acctKeysEvery.filter(k => !inTotal(k)).map(k => accts[k].label).join(', ') }))),
     e('div', { style:{ display: narrow ? 'flex' : 'grid', justifyContent:'space-between', gridTemplateColumns:'1fr 1fr', gap: narrow ? 12 : 28,
         paddingTop: narrow ? 12 : 0, borderTop: narrow ? '1px solid color-mix(in srgb, var(--on-primary-container) 18%, transparent)' : 'none' } },
-      stat('Prognose', eur(totalEnd), totalEnd < 0 ? 'var(--bad)' : 'var(--on-primary-container)',
-        `${totalDelta >= 0 ? '+' : '−'}${eur(Math.abs(totalDelta))} bis Ende`),
-      withFloor.length > 0 && stat('Puffer bis Limit', eur(bufferNow), signCol(bufferNow), `Prognose ${eur(bufferEnd)}`, narrow)),
+      stat(tr('Prognose'), eur(totalEnd), totalEnd < 0 ? 'var(--bad)' : 'var(--on-primary-container)',
+        tr('{v} bis Ende', { v: `${totalDelta >= 0 ? '+' : '−'}${eur(Math.abs(totalDelta))}` })),
+      withFloor.length > 0 && stat(tr('Puffer bis Limit'), eur(bufferNow), signCol(bufferNow), tr('Prognose {v}', { v: eur(bufferEnd) }), narrow)),
   );
   const cfgOwnRow = !isMobile && nAccts > 3 && nAccts % 3 !== 0;   // mini Gesamtsaldo → settings in their own row
   const totalCfgBtn = mkTotalCfgBtn(isMobile);
   const totalMain = mkTotalMain(isMobile);
   const totalCfg = showTotalCfg && e('div', { style: cfgOwnRow ? { paddingTop:14 } : { marginTop:14, paddingTop:12,
       borderTop:'1px solid color-mix(in srgb, var(--on-primary-container) 18%, transparent)' } },
-    e('div', { style:{ fontSize:14, fontWeight:600, marginBottom:4 } }, 'Im Gesamtsaldo enthalten'),
+    e('div', { style:{ fontSize:14, fontWeight:600, marginBottom:4 } }, tr('Im Gesamtsaldo enthalten')),
     e('div', { style:{ display:'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(220px, 1fr))', columnGap:16 } },
       ...acctKeysEvery.map(k => {
         const on = inTotal(k), last = on && acctKeysAll.length <= 1;
-        return e('label', { key:k, className:'mcheck', title: last ? 'Mindestens ein Konto muss enthalten sein' : undefined,
+        return e('label', { key:k, className:'mcheck', title: last ? tr('Mindestens ein Konto muss enthalten sein') : undefined,
             style:{ display:'flex', alignItems:'center', gap:12, minHeight: isMobile ? 48 : 40, cursor: last ? 'not-allowed' : 'pointer',
               opacity: last ? 0.6 : 1, userSelect:'none' } },
           e('input', { type:'checkbox', checked:on, disabled:last, onChange:() => toggleInTotal(k),
@@ -2532,7 +2610,7 @@ function App() {
           e('span', { style:{ fontFamily:'var(--mono)', fontSize:14, opacity: on ? 1 : 0.6, whiteSpace:'nowrap' } }, eur(init[k])));
       })),
     e('div', { style:{ display:'flex', justifyContent:'flex-end', marginTop:4 } },
-      e('button', { className:'btn-filled', onClick:()=>setShowTotalCfg(false) }, e(Icon, { name:'check', size:18 }), 'Fertig')));
+      e('button', { className:'btn-filled', onClick:()=>setShowTotalCfg(false) }, e(Icon, { name:'check', size:18 }), tr('Fertig'))));
   const totalTile = e('div', { className:'panel', style:{
       padding: isMobile ? '16px 18px' : '16px 20px', marginBottom:12,
       background:'var(--primary-container)', color:'var(--on-primary-container)', boxShadow:'none' } },
@@ -2569,7 +2647,7 @@ function App() {
         fontSize:14, letterSpacing:'.25px' } },
     e('span', { style:{ flex:1, minWidth:0 } }, toast.msg),
     toast.undo && e('button', { onClick: toast.undo, className:'btn-text',
-      style:{ background:'transparent', color:'var(--inverse-primary)', padding:'8px 12px', minHeight:40 } }, toast.action || 'Rückgängig'),
+      style:{ background:'transparent', color:'var(--inverse-primary)', padding:'8px 12px', minHeight:40 } }, toast.action || tr('Rückgängig')),
   );
   const fab = isMobile && !showAdd && editRow === null && budgetAddOpen === null && e('button', { className:'fab', id:'fab-add',
       onClick: () => {
@@ -2579,7 +2657,7 @@ function App() {
           if (el) el.scrollIntoView({ behavior:'smooth', block:'start' });
         }, 30);
       } },
-    e(Icon, { name:'add', size:24 }), 'Neue Buchung');
+    e(Icon, { name:'add', size:24 }), tr('Neue Buchung'));
   if (isWide) return e('div', { className:'gap' },
     e('div', { className:'wide-top gap' }, toolbar, tagPanel, newAcctPanel),
     e('div', { className:'two-pane' },
