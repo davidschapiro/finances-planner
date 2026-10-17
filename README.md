@@ -31,6 +31,7 @@ Runs on your own free Cloudflare account, behind your own login — see [Set up 
 
 **Settings** (⚙ next to the title)
 - **Language** (Deutsch / English) and **currency** (EUR, USD, GBP, CHF, ILS, …). Both are saved with the data, so every device shows the same. Without a saved choice the language follows the browser. Number input follows the language: `1.234,50` in German, `1,234.50` in English.
+- **Date format**: automatic (follows the language) or fixed: `31.12.2026`, `31/12/2026`, `12/31/2026`, `2026-12-31`. It applies to the list, the chart and all date fields; the app uses its own date field (type the date, or open the system calendar with the 📅 button), because native date fields always follow the browser's language.
 - Export and import all data as JSON.
 
 ## Architecture
@@ -63,7 +64,7 @@ Runs on your own free Cloudflare account, behind your own login — see [Set up 
   },                                                                         // type: omitted = Girokonto
   "tags":   [ { "id": 2, "label": "Fixkosten", "color": "#e11d48" } ],
   "budget": [ { "id": 1729..., "desc": "Netflix", "amt": -12.99, "acct": "giro" } ],  // monthly templates
-  "settings": { "lang": "en", "currency": "EUR" },                       // optional
+  "settings": { "lang": "en", "currency": "EUR", "dateFormat": "auto" },  // optional
   "rev": "m1x2y3abc"                                                       // revision of the last save
 }
 ```
@@ -137,7 +138,7 @@ You need a free [Cloudflare](https://dash.cloudflare.com) account and a GitHub a
   for f in /tmp/s*.js; do node --check "$f" || exit 1; done
   ```
 - **Larger changes:** use a feature branch, check the preview URL, then merge to `main`.
-- **Texts and languages:** UI texts are written in German in the code and wrapped in `tr('…')`; the English text lives in the `I18N_EN` dictionary (placeholders like `{n}` are filled from the second argument). Every new text needs an `I18N_EN` entry. To add a language, add it to `LANGS` and add a dictionary next to `I18N_EN` (and pick it in `tr`). Money goes through `eur()`, user input through `parseAmount()`, dates through `fmtDayMonth()` — never hard-code `de-DE` or `€`.
+- **Texts and languages:** UI texts are written in German in the code and wrapped in `tr('…')`; the English text lives in the `I18N_EN` dictionary (placeholders like `{n}` are filled from the second argument). Every new text needs an `I18N_EN` entry. To add a language, add it to `LANGS` and add a dictionary next to `I18N_EN` (and pick it in `tr`). Money goes through `eur()`, user input through `parseAmount()`, dates through `fmtDate()` / `fmtDayMonth()` and the `DateInput` field — never hard-code `de-DE` or `€`.
 
 **Gotchas**
 - The API must stay on the **same origin** as the app (Pages Function at `/api`). A separate `workers.dev` Worker can't be put behind Access: the Access cookie isn't sent there, and Access blocks the CORS preflight.

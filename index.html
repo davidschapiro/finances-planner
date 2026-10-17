@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0&icon_names=add,arrow_downward,arrow_forward,arrow_upward,backspace,bar_chart,calculate,check,chevron_left,chevron_right,close,content_copy,delete,download,edit,expand_less,expand_more,label,language,payments,search,settings,swap_horiz,upload&display=block" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0&icon_names=add,arrow_downward,arrow_forward,arrow_upward,backspace,bar_chart,calculate,calendar_month,check,chevron_left,chevron_right,close,content_copy,delete,download,edit,expand_less,expand_more,label,language,payments,search,settings,swap_horiz,upload&display=block" rel="stylesheet">
 <meta name="theme-color" content="#FEF7FF" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#141218" media="(prefers-color-scheme: dark)">
 
@@ -185,7 +185,7 @@ tbody tr:hover td { background: color-mix(in srgb, var(--text) 4%, transparent);
 @media (max-width: 640px) { .ibtn.tick { width: 48px; height: 48px; } }
 
 /* Date fields: always wide enough for the full date (e.g. dd/mm/yyyy) plus the calendar icon */
-input[type=date] { min-width: 148px; }
+input[type=date], .datefield { min-width: 148px; }
 
 /* ── Layout ── */
 /* Wide desktop: two panes 2:1 — overview left (sticky, scrolls on its own), transactions right */
@@ -562,10 +562,13 @@ const seedTxs = () => [
 const LANGS = { de: 'Deutsch', en: 'English' };
 const CURRENCIES = ['EUR', 'USD', 'GBP', 'CHF', 'ILS', 'CAD', 'AUD', 'PLN', 'SEK', 'NOK', 'DKK', 'CZK', 'JPY'];
 let LANG = 'de', CUR = 'EUR', NUMLOC = 'de-DE';
-let SETTINGS = {};                    // { lang, currency } — saved with the data, so all devices match
+let SETTINGS = {};                    // { lang, currency, dateFormat } — saved with the data, so all devices match
+const DATE_FORMATS = ['auto', 'dmy.', 'dmy/', 'mdy', 'ymd'];
+let DATEFMT = 'auto';
 const browserLang = () => /^de\b/i.test(navigator.language || '') ? 'de' : 'en';
-function setLocale(lang, cur) {
+function setLocale(lang, cur, dateFormat) {
   LANG = LANGS[lang] ? lang : browserLang();
+  DATEFMT = DATE_FORMATS.includes(dateFormat) ? dateFormat : 'auto';
   CUR  = CURRENCIES.includes(cur) ? cur : 'EUR';
   const nav = navigator.language || '';
   NUMLOC = LANG === 'de' ? 'de-DE' : (/^en-/i.test(nav) ? nav : 'en-GB');
@@ -601,6 +604,13 @@ const I18N_EN = {
   "Name": "Name",
   "Fehler": "Error",
   "Sprache": "Language",
+  "Datumsformat": "Date format",
+  "Automatisch ({ex})": "Automatic ({ex})",
+  "Kalender": "Calendar",
+  "TT.MM.JJJJ": "DD.MM.YYYY",
+  "TT/MM/JJJJ": "DD/MM/YYYY",
+  "MM/TT/JJJJ": "MM/DD/YYYY",
+  "JJJJ-MM-TT": "YYYY-MM-DD",
   "Währung": "Currency",
   "Anmeldung abgelaufen – Änderungen werden nicht gespeichert.": "Login expired – changes are not being saved.",
   "Änderungen von einem anderen Gerät wurden zusammengeführt.": "Changes from another device were merged.",
@@ -725,9 +735,32 @@ const parseAmount = v => {
   else x = x.replace(/,/g, '');
   return parseFloat(x);
 };
+// Date format: a setting ('auto' = follows the language). Native date fields can't be re-formatted,
+// so the app uses its own DateInput (text + calendar button) everywhere.
+const dateFmt = () => DATEFMT !== 'auto' ? DATEFMT : LANG === 'de' ? 'dmy.' : (NUMLOC === 'en-US' ? 'mdy' : 'dmy/');
+const isoParts = iso => /^\d{4}-\d{2}-\d{2}$/.test(iso || '') ? iso.split('-') : null;
+const fmtDate = (iso, f = dateFmt()) => {
+  const p = isoParts(iso); if (!p) return '';
+  const [y, m, d] = p;
+  return f === 'dmy/' ? `${d}/${m}/${y}` : f === 'mdy' ? `${m}/${d}/${y}` : f === 'ymd' ? iso : `${d}.${m}.${y}`;
+};
 const fmtDayMonth = iso => {
-  const [y, m, d] = String(iso).split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString(NUMLOC, { day: '2-digit', month: '2-digit' });
+  const p = isoParts(iso); if (!p) return '';
+  const [, m, d] = p, f = dateFmt();
+  return f === 'dmy/' ? `${d}/${m}` : f === 'mdy' ? `${m}/${d}` : f === 'ymd' ? `${m}-${d}` : `${d}.${m}.`;
+};
+const datePattern = () => tr({ 'dmy.': 'TT.MM.JJJJ', 'dmy/': 'TT/MM/JJJJ', mdy: 'MM/TT/JJJJ', ymd: 'JJJJ-MM-TT' }[dateFmt()]);
+// Typed text → ISO date in the chosen format, or null while incomplete/invalid (2- or 4-digit year)
+const parseDate = txt => {
+  const parts = String(txt || '').trim().split(/[.\/\-\s]+/).filter(Boolean);
+  if (parts.length !== 3) return null;
+  const f = dateFmt();
+  let [d, m, y] = f === 'ymd' ? [parts[2], parts[1], parts[0]] : f === 'mdy' ? [parts[1], parts[0], parts[2]] : parts;
+  if (!/^\d{1,2}$/.test(d) || !/^\d{1,2}$/.test(m) || !/^(\d{2}|\d{4})$/.test(y)) return null;
+  d = +d; m = +m; y = +y; if (y < 100) y += 2000;
+  const dt = new Date(y, m - 1, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return null;
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 };
 const currencyLabel = c => {
   const sym = (0).toLocaleString(NUMLOC, { style: 'currency', currency: c, currencyDisplay: 'narrowSymbol' }).replace(/[\d.,\s ]/g, '');
@@ -961,6 +994,43 @@ async function persist(txs, init, accts, tags, budget) {
   saveLocal(data);
   if (hasWorker()) syncQueue = syncQueue.then(() => syncSave(clone(data))).catch(() => {});
   return syncQueue;
+}
+
+// ── Date field: text in the chosen format + calendar button (opens the system date picker) ──
+function DateInput({ value, onChange, disabled, style = {}, title, autoFocus, onKeyDown, ...rest }) {
+  const [text, setText] = useState(() => fmtDate(value));
+  const [focused, setFocused] = useState(false);
+  const pick = useRef(null);
+  const mob = useIsMobile();
+  const fmtKey = dateFmt();
+  useEffect(() => { if (!focused) setText(fmtDate(value)); }, [value, fmtKey, focused]);
+  const emit = v => onChange && onChange({ target: { value: v } });
+  const { opacity, width, ...inputStyle } = style;
+  const invalid = focused && text.trim() !== '' && !parseDate(text);
+  return e('div', { className:'datefield', style:{ position:'relative', minWidth: width ? 0 : undefined, width, opacity } },
+    e('input', { ...rest, type:'text', inputMode:'numeric', autoComplete:'off', value:text, disabled, title, autoFocus,
+      placeholder: datePattern(), 'aria-invalid': invalid || undefined,
+      style:{ ...inputStyle, width:'100%', boxSizing:'border-box', paddingRight: mob ? 52 : 40,
+        ...(invalid ? { borderColor:'var(--bad)', boxShadow:'0 0 0 1px var(--bad)' } : {}) },
+      onFocus: () => setFocused(true),
+      onBlur: () => { setFocused(false); setText(fmtDate(value)); },
+      onChange: ev => {
+        const t = ev.target.value; setText(t);
+        if (!t.trim()) emit(''); else { const iso = parseDate(t); if (iso) emit(iso); }
+      },
+      onKeyDown }),
+    e('button', { type:'button', className:'ibtn', disabled, tabIndex:-1, title: tr('Kalender'), 'aria-label': tr('Kalender'),
+        style:{ position:'absolute', right:2, top:'50%', transform:'translateY(-50%)', zIndex:1 },
+        onClick: ev => {
+          ev.stopPropagation();
+          const p = pick.current; if (!p) return;
+          try { p.showPicker(); } catch { p.focus(); p.click(); }
+        } },
+      e(Icon, { name:'calendar_month', size: mob ? 22 : 18 })),
+    e('input', { ref:pick, type:'date', tabIndex:-1, 'aria-hidden':true, value: value || '', disabled,
+      onChange: ev => { emit(ev.target.value); setText(fmtDate(ev.target.value)); },
+      style:{ position:'absolute', right:0, bottom:0, width:1, height:1, minWidth:0, minHeight:0,
+        padding:0, border:0, opacity:0, pointerEvents:'none' } }));
 }
 
 // ── Chart component ──────────────────────────────────────────────────────────
@@ -1370,7 +1440,7 @@ function App() {
   const [showTotalCfg, setShowTotalCfg] = useState(false);
   const [settings, setSettings] = useState({});               // { lang, currency }
   SETTINGS = settings;
-  setLocale(settings.lang, settings.currency);                 // before anything below formats or translates
+  setLocale(settings.lang, settings.currency, settings.dateFormat);                 // before anything below formats or translates
   useEffect(() => { document.title = tr('Finanzübersicht'); }, [LANG]);
   const [budgetAddOpen, setBudgetAddOpen] = useState(null);   // 'in' | 'out' | null  // mobile: add-form collapsed by default
 
@@ -1443,7 +1513,7 @@ function App() {
     return () => { clearInterval(id); document.removeEventListener('visibilitychange', onVis); window.removeEventListener('focus', onVis); };
   }, []);
 
-  const chart = useMemo(() => buildChart(txs, init), [txs, init, LANG, CUR]);
+  const chart = useMemo(() => buildChart(txs, init), [txs, init, LANG, CUR, DATEFMT]);
   const curr  = chart[chart.length - 1];
 
   // Latest state for async callbacks (toast undo)
@@ -2021,7 +2091,7 @@ function App() {
           )
         : isBooking
           ? e('div', { style:{display:'flex', alignItems:'center', gap:4} },
-              e('input', { type:'date', value:budgetBookDate, style:{fontSize:12, padding:'4px 6px'},
+              e(DateInput, { value:budgetBookDate, style:{fontSize:12, padding:'4px 6px'},
                 onChange: ev => setBudgetBookDate(ev.target.value) }),
               e('button', { style:{fontSize:11, padding:'4px 8px'}, onClick:()=>confirmBookBudgetItem(item),
                 disabled: !budgetBookDate }, '✓'),
@@ -2245,11 +2315,11 @@ function App() {
         kindSeg,
         isTransfer
           ? e(React.Fragment, null,
-              e('input', { type:'date', value:form.date, disabled: !!form.instant, style:{ opacity: form.instant ? 0.4 : 1 },
+              e(DateInput, { value:form.date, disabled: !!form.instant, style:{ opacity: form.instant ? 0.4 : 1 },
                 onChange: ev => setForm(f=>({...f, date:ev.target.value})) }),
               fromTo)
           : e('div', { style:{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 } },
-              e('input', { type:'date', value:form.date, disabled: !!form.instant,
+              e(DateInput, { value:form.date, disabled: !!form.instant,
                 style:{ opacity: form.instant ? 0.4 : 1 },
                 onChange: ev => setForm(f=>({...f, date:ev.target.value})) }),
               e('select', { value:form.acct, onChange: ev => setForm(f=>({...f, acct:ev.target.value})) },
@@ -2273,7 +2343,7 @@ function App() {
         form.instant && e('span', { style:{ fontSize:13, color:'var(--text2)', marginTop:-4 } },
           tr('Wird direkt auf den Kontostand angewendet – kein Eintrag in der Liste.')),
       );
-  const dateField = e('input', { type:'date', value:form.date, disabled: !!form.instant,
+  const dateField = e(DateInput, { value:form.date, disabled: !!form.instant,
       'aria-label':tr('Datum'), style:{ opacity: form.instant ? 0.4 : 1 },
       title: form.instant ? tr('Bei Sofort-Buchung nicht nötig') : undefined,
       onChange: ev => setForm(f=>({...f, date:ev.target.value})) });
@@ -2349,7 +2419,7 @@ function App() {
         e('span', { style:{ fontSize:18, fontWeight:600, color:'var(--text)' } }, editRow.to ? tr('Umbuchung bearbeiten') : tr('Buchung bearbeiten')),
         editRow.to
           ? e(React.Fragment, null,
-              e('input', { type:'date', value:editRow.date, onChange: ev => setEditRow(r=>({...r, date:ev.target.value})) }),
+              e(DateInput, { value:editRow.date, onChange: ev => setEditRow(r=>({...r, date:ev.target.value})) }),
               e('div', { style:{display:'grid', gridTemplateColumns:'1fr auto 1fr', gap:4, alignItems:'center'} },
                 e('select', { value:editRow.acct, 'aria-label':tr('Von Konto'),
                   onChange: ev => setEditRow(r => ({ ...r, acct:ev.target.value, to: r.to === ev.target.value ? r.acct : r.to })) },
@@ -2358,7 +2428,7 @@ function App() {
                 e('select', { value:editRow.to, 'aria-label':tr('Nach Konto'), onChange: ev => setEditRow(r => ({ ...r, to:ev.target.value })) },
                   ...Object.entries(accts).filter(([k]) => k !== editRow.acct).map(([k,v]) => e('option',{key:k,value:k}, v.label)))))
           : e('div', { style:{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10} },
-          e('input', { type:'date', value:editRow.date,
+          e(DateInput, { value:editRow.date,
             onChange: ev => setEditRow(r=>({...r, date:ev.target.value})) }),
           e('select', { value:editRow.acct,
             onChange: ev => setEditRow(r=>({...r, acct:ev.target.value})) },
@@ -2419,7 +2489,7 @@ function App() {
         // Duplicate: pick a date
         dupId === tx.id && e('div', { style:{display:'flex', flexDirection:'column', gap:8, padding:'0 14px 12px'} },
           e('span', { style:{fontSize:13, color:'var(--text2)'} }, tr('Kopie anlegen am:')),
-          e('input', { type:'date', value:dupDate, onChange: ev => setDupDate(ev.target.value) }),
+          e(DateInput, { value:dupDate, onChange: ev => setDupDate(ev.target.value) }),
           e('div', { style:{display:'grid', gridTemplateColumns:'1fr 1fr', gap:8} },
             e('button', { onClick:cancelDup }, tr('Abbrechen')),
             e('button', { onClick:()=>{ confirmDup(tx); setOpenTx(null); }, disabled:!dupDate,
@@ -2513,7 +2583,7 @@ function App() {
     e('span', { style:{ color:'var(--text2)', display:'flex' } }, e(Icon, { name:ico, size:24 })),
     e('span', { style:{ flex:1, fontSize:16, fontWeight:500, color:'var(--text)' } }, label),
     e('select', { value, 'aria-label':label, onChange: ev => onChange(ev.target.value),
-        style:{ width:'auto', minWidth:150, maxWidth:'55%' } },
+        style:{ width:160, flexShrink:0 } },
       ...options.map(([v, l]) => e('option', { key:v, value:v }, l))));
   const settingsDialog = showSettings && e('div', { onClick:()=>setShowSettings(false),
       style:{ position:'fixed', inset:0, zIndex:11000, background:'rgba(0,0,0,0.32)',
@@ -2529,6 +2599,10 @@ function App() {
           Object.entries(LANGS), v => updateSettings({ lang: v })),
         settingSelect('payments', tr('Währung'), CUR,
           CURRENCIES.map(c => [c, currencyLabel(c)]), v => updateSettings({ currency: v })),
+        settingSelect('calendar_month', tr('Datumsformat'), DATEFMT,
+          DATE_FORMATS.map(f => [f, f === 'auto'
+            ? tr('Automatisch ({ex})', { ex: fmtDate('2026-12-31', LANG === 'de' ? 'dmy.' : (NUMLOC === 'en-US' ? 'mdy' : 'dmy/')) })
+            : fmtDate('2026-12-31', f)]), v => updateSettings({ dateFormat: v })),
         e('div', { style:{ height:1, background:'var(--border)', margin:'8px 0' } }),
         settingsItem('download', tr('Daten exportieren'), tr('Sicherung als JSON-Datei herunterladen'), () => { exportData(); setShowSettings(false); }),
         settingsItem('upload', tr('Daten importieren'), tr('Aus einer Sicherung wiederherstellen'), () => { setShowSettings(false); importRef.current.click(); }),
