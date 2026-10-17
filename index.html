@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0&icon_names=add,arrow_downward,arrow_forward,arrow_upward,backspace,bar_chart,calculate,calendar_month,check,chevron_left,chevron_right,close,content_copy,delete,download,edit,expand_less,expand_more,label,language,payments,search,settings,swap_horiz,upload&display=block" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,400,0..1,0&icon_names=add,arrow_downward,arrow_forward,arrow_upward,backspace,balance,bar_chart,calculate,calendar_month,check,chevron_left,chevron_right,close,content_copy,delete,download,edit,expand_less,expand_more,info,label,language,payments,receipt_long,repeat,search,settings,swap_horiz,upload&display=block" rel="stylesheet">
 <meta name="theme-color" content="#FEF7FF" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#141218" media="(prefers-color-scheme: dark)">
 
@@ -604,6 +604,17 @@ const I18N_EN = {
   "Name": "Name",
   "Fehler": "Error",
   "Sprache": "Language",
+  "So funktioniert das Budget": "How the budget works",
+  "Ein Monat im Blick": "One month at a time",
+  "Das Budget zeigt immer einen Monat. Mit ‹ und › wechselst du zwischen den Monaten.": "The budget always shows one month. Use ‹ and › to switch between months.",
+  "Vorlagen (gestrichelt)": "Templates (dashed)",
+  "Mit „Posten hinzufügen“ legst du wiederkehrende Einnahmen oder Ausgaben an, z. B. Gehalt, Miete oder Abos. Eine Vorlage gilt für jeden Monat, verändert aber noch keinen Kontostand.": "“Add item” creates recurring income or expenses, e.g. salary, rent or subscriptions. A template applies to every month but doesn’t change any balance yet.",
+  "Macht aus der Vorlage eine geplante Buchung für diesen Monat – du wählst nur das Datum. Sie erscheint dann in der Buchungsliste und in der Prognose, und die Vorlage zeigt „✓ gebucht“. Mit ↺ nimmst du die Buchung dieses Monats wieder heraus.": "Turns the template into a planned transaction for this month – you only pick the date. It then appears in the transaction list and in the forecast, and the template shows “✓ booked”. ↺ removes this month’s transaction again.",
+  "Weitere Buchungen": "Other transactions",
+  "Geplante Buchungen des Monats, die zu keiner Vorlage gehören, erscheinen automatisch (ohne Rahmen). Umbuchungen zählen nicht, und Eingänge auf Kreditkarten zählen nicht als Einnahmen.": "Planned transactions of the month that don’t belong to a template appear automatically (without a frame). Transfers don’t count, and incoming amounts on credit cards don’t count as income.",
+  "Einnahmen minus Ausgaben des Monats – einschließlich der noch nicht gebuchten Vorlagen. Ist er positiv, bleibt im Monat etwas übrig.": "The month’s income minus expenses – including templates that aren’t booked yet. If it’s positive, something is left over that month.",
+  "Tipp: Eine gebuchte Vorlage bleibt für den Monat als „✓ gebucht“ markiert – auch wenn du die Buchung später mit ✓ auf den Kontostand anwendest. So wird nichts doppelt gebucht.": "Tip: a booked template stays marked “✓ booked” for that month – even after you apply the transaction to the balance with ✓. So nothing gets booked twice.",
+  "Verstanden": "Got it",
   "Datumsformat": "Date format",
   "Automatisch ({ex})": "Automatic ({ex})",
   "Kalender": "Calendar",
@@ -1437,6 +1448,7 @@ function App() {
   const [openTx, setOpenTx] = useState(null);     // mobile: which card shows its action buttons
   const [showAdd, setShowAdd] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showBudgetInfo, setShowBudgetInfo] = useState(false);
   const [showTotalCfg, setShowTotalCfg] = useState(false);
   const [settings, setSettings] = useState({});               // { lang, currency }
   SETTINGS = settings;
@@ -1728,31 +1740,42 @@ function App() {
     setBudgetBookId(item.id);
     setBudgetBookDate(`${budgetPeriod}-01`);
   };
+  // Booking a template creates a transaction linked to it (budgetId) AND marks the month on the
+  // template (bookedMonths). The mark survives when that transaction is later applied with ✓ Buchen
+  // (which removes it from the list), so the template can't accidentally be booked twice.
+  const setBookedMonth = (item, month, on) => budget.map(b => b.id !== item.id ? b : (() => {
+    const months = new Set(b.bookedMonths || []);
+    on ? months.add(month) : months.delete(month);
+    const { bookedMonths: _, ...rest } = b;
+    return months.size ? { ...rest, bookedMonths: [...months].sort() } : rest;
+  })());
   const confirmBookBudgetItem = item => {
     if (!budgetBookDate) return; // date is mandatory
     const newTxs = [...txs, { id:Date.now(), date:budgetBookDate, acct:item.acct || Object.keys(accts)[0],
-      desc:item.desc, amt:item.amt, tags:[] }];
-    setTxs(newTxs);
-    persist(newTxs, init, accts, tags, budget);
+      desc:item.desc, amt:item.amt, tags:[], budgetId:item.id }];
+    const newBudget = setBookedMonth(item, budgetBookDate.slice(0, 7), true);
+    setTxs(newTxs); setBudget(newBudget);
+    persist(newTxs, init, accts, tags, newBudget);
     setBudgetBookId(null); setBudgetBookDate('');
   };
-  // Removes the real transaction this period that fulfils a template, reverting it to "→ Buchen".
+  const matchesTemplate = (t, item) => t.budgetId === item.id || (!t.budgetId && t.desc === item.desc && t.amt === item.amt);
+  // ↺: removes this month's transaction for the template (if it's still in the list) and the month mark.
   const unbookBudgetItem = item => {
-    const match = budgetInPeriod.find(t => t.desc === item.desc && t.amt === item.amt);
-    if (!match) return;
-    const newTxs = txs.filter(t => t.id !== match.id);
-    setTxs(newTxs);
-    persist(newTxs, init, accts, tags, budget);
+    const match = budgetInPeriod.find(t => matchesTemplate(t, item));
+    const newTxs = match ? txs.filter(t => t.id !== match.id) : txs;
+    const newBudget = setBookedMonth(item, budgetPeriod, false);
+    setTxs(newTxs); setBudget(newBudget);
+    persist(newTxs, init, accts, tags, newBudget);
   };
 
   const budgetInPeriod = useMemo(
     () => txs.filter(t => (t.date || '').slice(0,7) === budgetPeriod),
     [txs, budgetPeriod]
   );
-  const isBudgetItemBooked = item => budgetInPeriod.some(t => t.desc === item.desc && t.amt === item.amt);
+  const isBudgetItemBooked = item => (item.bookedMonths || []).includes(budgetPeriod) || budgetInPeriod.some(t => matchesTemplate(t, item));
   // Real transactions this period that don't correspond to any budget template — shown as plain rows.
   const adhocInPeriod = useMemo(
-    () => budgetInPeriod.filter(t => !t.to && !budget.some(b => b.desc === t.desc && b.amt === t.amt)),
+    () => budgetInPeriod.filter(t => !t.to && !budget.some(b => matchesTemplate(t, b))),
     [budgetInPeriod, budget]
   );
   // Accounts whose positive-amount entries shouldn't count as budget income
@@ -2152,7 +2175,11 @@ function App() {
   const budgetPanel = showBudget && e('div', { className:'panel', style:{padding: isMobile ? '12px 14px 16px' : '14px 16px'} },
     // Header: title left, close top-right
     e('div', { style:{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4} },
-      e('span', { style:{fontSize:22, fontWeight:600, color:'var(--text)', letterSpacing:0} }, 'Budget'),
+      e('div', { style:{display:'flex', alignItems:'center', gap:2} },
+        e('span', { style:{fontSize:22, fontWeight:600, color:'var(--text)', letterSpacing:0} }, 'Budget'),
+        e('button', { className:'ibtn', onClick:()=>setShowBudgetInfo(true), title:tr('So funktioniert das Budget'),
+            'aria-label':tr('So funktioniert das Budget'), style:{color:'var(--text2)'} },
+          e(Icon, { name:'info', size: isMobile ? 24 : 20 }))),
       e('button', { className:'ibtn', onClick:()=>setShowBudget(false), title:tr('Schließen'), style:{marginRight:-8} },
         e(Icon, { name:'close', size:22 })),
     ),
@@ -2561,11 +2588,11 @@ function App() {
 
   // ── Settings dialog (M3) ──
   useEffect(() => {
-    if (!showSettings) return;
-    const h = ev => { if (ev.key === 'Escape') setShowSettings(false); };
+    if (!showSettings && !showBudgetInfo) return;
+    const h = ev => { if (ev.key === 'Escape') { setShowSettings(false); setShowBudgetInfo(false); } };
     document.addEventListener('keydown', h);
     return () => document.removeEventListener('keydown', h);
-  }, [showSettings]);
+  }, [showSettings, showBudgetInfo]);
   const settingsItem = (ico, title, sub, onClick) => e('button', { type:'button', className:'pillx', onClick,
       style:{ display:'flex', alignItems:'center', justifyContent:'flex-start', gap:16, width:'100%', textAlign:'left', padding:'12px 16px', margin:'0 -16px',
         boxSizing:'content-box', border:'none', borderRadius:12, background:'transparent', color:'var(--text)', minHeight:56 } },
@@ -2585,6 +2612,38 @@ function App() {
     e('select', { value, 'aria-label':label, onChange: ev => onChange(ev.target.value),
         style:{ width:160, flexShrink:0 } },
       ...options.map(([v, l]) => e('option', { key:v, value:v }, l))));
+  // ── Budget explainer (M3 dialog) ──
+  const BUDGET_HELP = [
+    ['calendar_month', 'Ein Monat im Blick',
+     'Das Budget zeigt immer einen Monat. Mit ‹ und › wechselst du zwischen den Monaten.'],
+    ['repeat', 'Vorlagen (gestrichelt)',
+     'Mit „Posten hinzufügen“ legst du wiederkehrende Einnahmen oder Ausgaben an, z. B. Gehalt, Miete oder Abos. Eine Vorlage gilt für jeden Monat, verändert aber noch keinen Kontostand.'],
+    ['arrow_forward', '→ Buchen',
+     'Macht aus der Vorlage eine geplante Buchung für diesen Monat – du wählst nur das Datum. Sie erscheint dann in der Buchungsliste und in der Prognose, und die Vorlage zeigt „✓ gebucht“. Mit ↺ nimmst du die Buchung dieses Monats wieder heraus.'],
+    ['receipt_long', 'Weitere Buchungen',
+     'Geplante Buchungen des Monats, die zu keiner Vorlage gehören, erscheinen automatisch (ohne Rahmen). Umbuchungen zählen nicht, und Eingänge auf Kreditkarten zählen nicht als Einnahmen.'],
+    ['balance', 'Saldo',
+     'Einnahmen minus Ausgaben des Monats – einschließlich der noch nicht gebuchten Vorlagen. Ist er positiv, bleibt im Monat etwas übrig.'],
+  ];
+  const budgetInfoDialog = showBudgetInfo && e('div', { onClick:()=>setShowBudgetInfo(false),
+      style:{ position:'fixed', inset:0, zIndex:11000, background:'rgba(0,0,0,0.32)',
+        display:'flex', alignItems:'center', justifyContent:'center', padding: isMobile ? 16 : 24 } },
+    e('div', { role:'dialog', 'aria-modal':true, 'aria-label':tr('So funktioniert das Budget'), onClick: ev => ev.stopPropagation(),
+        style:{ width:'min(520px, 100%)', maxHeight:'calc(100vh - 48px)', overflowY:'auto', background:'var(--surface-high)',
+          borderRadius:28, padding:'24px 24px 16px', boxShadow:'var(--elev3)', display:'flex', flexDirection:'column', gap:4 } },
+      e('div', { style:{ display:'flex', flexDirection:'column', alignItems:'center', gap:12, marginBottom:12 } },
+        e('span', { style:{ color:'var(--text2)', display:'flex' } }, e(Icon, { name:'info', size:24 })),
+        e('span', { style:{ fontSize:24, fontWeight:500, color:'var(--text)', textAlign:'center' } }, tr('So funktioniert das Budget'))),
+      ...BUDGET_HELP.map(([ico, title, body]) => e('div', { key:title, style:{ display:'flex', gap:16, padding:'10px 0' } },
+        e('span', { style:{ color:'var(--primary)', display:'flex', flexShrink:0, paddingTop:2 } }, e(Icon, { name:ico, size:24 })),
+        e('div', { style:{ display:'flex', flexDirection:'column', gap:4, minWidth:0 } },
+          e('span', { style:{ fontSize:16, fontWeight:600, color:'var(--text)' } }, tr(title)),
+          e('span', { style:{ fontSize:15, lineHeight:1.45, color:'var(--text2)' } }, tr(body))))),
+      e('div', { style:{ fontSize:13, lineHeight:1.45, color:'var(--text2)', background:'var(--bg2)', borderRadius:12, padding:'10px 14px', marginTop:6 } },
+        tr('Tipp: Eine gebuchte Vorlage bleibt für den Monat als „✓ gebucht“ markiert – auch wenn du die Buchung später mit ✓ auf den Kontostand anwendest. So wird nichts doppelt gebucht.')),
+      e('div', { style:{ display:'flex', justifyContent:'flex-end', marginTop:12 } },
+        e('button', { className:'btn-filled', onClick:()=>setShowBudgetInfo(false) }, tr('Verstanden'))),
+    ));
   const settingsDialog = showSettings && e('div', { onClick:()=>setShowSettings(false),
       style:{ position:'fixed', inset:0, zIndex:11000, background:'rgba(0,0,0,0.32)',
         display:'flex', alignItems:'center', justifyContent:'center', padding:24 } },
@@ -2737,8 +2796,8 @@ function App() {
     e('div', { className:'two-pane' },
       e('div', { className:'pane-left' }, cardsWrapped, budgetPanel, chartPanel),
       e('div', { className:'pane-right' }, txPanel)),
-    toastEl, settingsDialog);
-  return e('div', { className:'gap' }, fab, toolbar, tagPanel, newAcctPanel, budgetPanel, cardsWrapped, chartPanel, txWrapped, toastEl, settingsDialog);
+    toastEl, settingsDialog, budgetInfoDialog);
+  return e('div', { className:'gap' }, fab, toolbar, tagPanel, newAcctPanel, budgetPanel, cardsWrapped, chartPanel, txWrapped, toastEl, settingsDialog, budgetInfoDialog);
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(e(App));
