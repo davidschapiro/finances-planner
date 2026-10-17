@@ -168,6 +168,11 @@ tbody tr:hover td { background: color-mix(in srgb, var(--text) 4%, transparent);
   .actbtn { flex: 1 1 0; flex-direction: column; gap: 4px !important; font-size: 12px !important;
             min-height: 64px !important; padding: 8px 4px !important; border-radius: 16px !important; }
   .actbtn .msym { font-size: 22px; }
+  /* Budget detail buttons: icon and text side by side, normal button height */
+  .actbtn.actbtn-row { flex-direction: row; gap: 8px !important; min-height: 48px !important;
+                       padding: 0 12px !important; border-radius: 24px !important; }
+  .actbtn.actbtn-row > span:last-child { font-size: 14px; }
+  .actbtn.actbtn-row .msym { font-size: 20px; width: 20px !important; height: 20px !important; }
 }
 
 /* ── Click-to-reveal action buttons (desktop default; mobile overrides above) ── */
@@ -2125,7 +2130,7 @@ function App() {
   // ── Budget panel: two-sided ledger for the period ──────────
   const saldoCol = budgetSaldo >= 0 ? 'var(--ok)' : 'var(--bad)';
 
-  const actBtn = (ico, label, onClick, color) => e('button', { className:'actbtn btn-tonal', onClick,
+  const actBtn = (ico, label, onClick, color, extraClass = '') => e('button', { className:'actbtn btn-tonal' + (extraClass ? ' ' + extraClass : ''), onClick,
     style: color ? { color: color + ' !important' } : undefined },
     typeof ico === 'string' ? e(Icon, { name:ico, size:22 }) : ico, e('span', null, label));
   // Budget rows look like the transaction list: description on top, account + status below,
@@ -2207,8 +2212,8 @@ function App() {
           : booked ? roundBtn('undo', tr('Buchung dieses Monats entfernen'), () => unbookBudgetItem(item))
           : roundBtn('arrow_forward', tr('Für diesen Monat buchen'), () => { setBudgetOpenId(null); startBookBudgetItem(item); })),
       isOpen && e('div', { style:{ display:'flex', gap:8, padding:'0 4px 12px' } },
-        actBtn('edit', tr('Bearbeiten'), () => startEditBudgetItem(item)),
-        actBtn('delete', tr('Löschen'), () => deleteBudgetItem(item.id))),
+        actBtn('edit', tr('Bearbeiten'), () => startEditBudgetItem(item), null, 'actbtn-row'),
+        actBtn('delete', tr('Löschen'), () => deleteBudgetItem(item.id), null, 'actbtn-row')),
       isBooking && e('div', { style:{ display:'flex', flexDirection:'column', gap:8, padding:'0 4px 12px' } },
         e('span', { style:{ fontSize:13, color:'var(--text2)' } }, tr('Buchen am:')),
         e(DateInput, { value:budgetBookDate, autoFocus:true, onChange: ev => setBudgetBookDate(ev.target.value) }),
