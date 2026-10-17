@@ -613,7 +613,7 @@ const I18N_EN = {
   "Weitere Buchungen": "Other transactions",
   "Geplante Buchungen des Monats, die zu keiner Vorlage gehören, erscheinen automatisch (ohne Rahmen). Umbuchungen zählen nicht, und Eingänge auf Kreditkarten zählen nicht als Einnahmen.": "Planned transactions of the month that don’t belong to a template appear automatically (without a frame). Transfers don’t count, and incoming amounts on credit cards don’t count as income.",
   "Einnahmen minus Ausgaben des Monats – einschließlich der noch nicht gebuchten Vorlagen. Ist er positiv, bleibt im Monat etwas übrig.": "The month’s income minus expenses – including templates that aren’t booked yet. If it’s positive, something is left over that month.",
-  "Tipp: Eine Vorlage gilt in einem Monat als gebucht, wenn es dort eine Buchung mit gleicher Beschreibung und gleichem Betrag gibt.": "Tip: a template counts as booked in a month when that month has a transaction with the same description and amount.",
+  "Tipp: Eine gebuchte Vorlage bleibt für den Monat als „✓ gebucht“ markiert – auch wenn du die Buchung später mit ✓ auf den Kontostand anwendest. So wird nichts doppelt gebucht.": "Tip: a booked template stays marked “✓ booked” for that month – even after you apply the transaction to the balance with ✓. So nothing gets booked twice.",
   "Verstanden": "Got it",
   "Datumsformat": "Date format",
   "Automatisch ({ex})": "Automatic ({ex})",
@@ -1740,31 +1740,42 @@ function App() {
     setBudgetBookId(item.id);
     setBudgetBookDate(`${budgetPeriod}-01`);
   };
+  // Booking a template creates a transaction linked to it (budgetId) AND marks the month on the
+  // template (bookedMonths). The mark survives when that transaction is later applied with ✓ Buchen
+  // (which removes it from the list), so the template can't accidentally be booked twice.
+  const setBookedMonth = (item, month, on) => budget.map(b => b.id !== item.id ? b : (() => {
+    const months = new Set(b.bookedMonths || []);
+    on ? months.add(month) : months.delete(month);
+    const { bookedMonths: _, ...rest } = b;
+    return months.size ? { ...rest, bookedMonths: [...months].sort() } : rest;
+  })());
   const confirmBookBudgetItem = item => {
     if (!budgetBookDate) return; // date is mandatory
     const newTxs = [...txs, { id:Date.now(), date:budgetBookDate, acct:item.acct || Object.keys(accts)[0],
-      desc:item.desc, amt:item.amt, tags:[] }];
-    setTxs(newTxs);
-    persist(newTxs, init, accts, tags, budget);
+      desc:item.desc, amt:item.amt, tags:[], budgetId:item.id }];
+    const newBudget = setBookedMonth(item, budgetBookDate.slice(0, 7), true);
+    setTxs(newTxs); setBudget(newBudget);
+    persist(newTxs, init, accts, tags, newBudget);
     setBudgetBookId(null); setBudgetBookDate('');
   };
-  // Removes the real transaction this period that fulfils a template, reverting it to "→ Buchen".
+  const matchesTemplate = (t, item) => t.budgetId === item.id || (!t.budgetId && t.desc === item.desc && t.amt === item.amt);
+  // ↺: removes this month's transaction for the template (if it's still in the list) and the month mark.
   const unbookBudgetItem = item => {
-    const match = budgetInPeriod.find(t => t.desc === item.desc && t.amt === item.amt);
-    if (!match) return;
-    const newTxs = txs.filter(t => t.id !== match.id);
-    setTxs(newTxs);
-    persist(newTxs, init, accts, tags, budget);
+    const match = budgetInPeriod.find(t => matchesTemplate(t, item));
+    const newTxs = match ? txs.filter(t => t.id !== match.id) : txs;
+    const newBudget = setBookedMonth(item, budgetPeriod, false);
+    setTxs(newTxs); setBudget(newBudget);
+    persist(newTxs, init, accts, tags, newBudget);
   };
 
   const budgetInPeriod = useMemo(
     () => txs.filter(t => (t.date || '').slice(0,7) === budgetPeriod),
     [txs, budgetPeriod]
   );
-  const isBudgetItemBooked = item => budgetInPeriod.some(t => t.desc === item.desc && t.amt === item.amt);
+  const isBudgetItemBooked = item => (item.bookedMonths || []).includes(budgetPeriod) || budgetInPeriod.some(t => matchesTemplate(t, item));
   // Real transactions this period that don't correspond to any budget template — shown as plain rows.
   const adhocInPeriod = useMemo(
-    () => budgetInPeriod.filter(t => !t.to && !budget.some(b => b.desc === t.desc && b.amt === t.amt)),
+    () => budgetInPeriod.filter(t => !t.to && !budget.some(b => matchesTemplate(t, b))),
     [budgetInPeriod, budget]
   );
   // Accounts whose positive-amount entries shouldn't count as budget income
@@ -2629,7 +2640,7 @@ function App() {
           e('span', { style:{ fontSize:16, fontWeight:600, color:'var(--text)' } }, tr(title)),
           e('span', { style:{ fontSize:15, lineHeight:1.45, color:'var(--text2)' } }, tr(body))))),
       e('div', { style:{ fontSize:13, lineHeight:1.45, color:'var(--text2)', background:'var(--bg2)', borderRadius:12, padding:'10px 14px', marginTop:6 } },
-        tr('Tipp: Eine Vorlage gilt in einem Monat als gebucht, wenn es dort eine Buchung mit gleicher Beschreibung und gleichem Betrag gibt.')),
+        tr('Tipp: Eine gebuchte Vorlage bleibt für den Monat als „✓ gebucht“ markiert – auch wenn du die Buchung später mit ✓ auf den Kontostand anwendest. So wird nichts doppelt gebucht.')),
       e('div', { style:{ display:'flex', justifyContent:'flex-end', marginTop:12 } },
         e('button', { className:'btn-filled', onClick:()=>setShowBudgetInfo(false) }, tr('Verstanden'))),
     ));
