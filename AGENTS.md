@@ -52,6 +52,30 @@ Example data in code and docs must stay neutral (Girokonto / Sparkonto / Kreditk
 
 See [README.md](README.md) → *Development*: single `index.html`, no build step, syntax-check the inline scripts before every push, use a feature branch and check the preview before merging.
 
+## Lessons learned (read before working)
+
+**Working with the person**
+- Change only what was asked. A layout fix for one place must be scoped to that place (e.g. the budget's detail buttons got their own class `actbtn-row`; the transaction list buttons stay as they are).
+- Show every visible change on a preview branch first; merge to `main` only after an explicit "merge".
+- Changes in the Cloudflare dashboard or GitHub settings need an explicit "ja" for each action.
+
+**Environment limits (cloud session)**
+- Deleting branches and changing repo settings via git/`gh` is blocked by the session's proxy. Do it through the browser, or leave it — old branches in the private repo are harmless now.
+- Pushing to a repo requires the Claude GitHub App to have access to it. Adding a repo there needs GitHub's "Confirm access" (passkey/2FA), which only the person can do.
+- Text typed into web forms through browser automation can lose characters. Read the field value back before saving.
+
+**App specifics**
+- Native `<input type=date>` always shows the browser's format; a page can't change it. That's why the app uses its own `DateInput` (text field + hidden native picker via `showPicker()`).
+- On mobile, `button:not(.ibtn):not(.pillx):not(.chip)` sets `font-size: 14px !important` with high specificity. A plain `.actbtn` rule can't override it — style the label `span` or use a more specific selector.
+- Every UI text goes through `tr()` with an `I18N_EN` entry; money through `eur()`, input through `parseAmount()`, dates through `fmtDate()`/`fmtDayMonth()`. Never hard-code `de-DE`, `€` or a date format.
+- Budget templates are linked to their transactions by `budgetId` and remember `bookedMonths` / `appliedMonths`. Older transactions are only matched by identical description + amount.
+- `confirm()`/`alert()` dialogs block browser automation; tests must accept or dismiss them (see `tests/helpers.py`).
+
+**Testing**
+- Measure, don't eyeball: check text overflow with `scrollWidth`/rendered width (a 1 px overflow already shows "…"), field heights and pane overflow in code, at 320–430 px and 1280–1920 px.
+- Prove a test can fail: break the feature on purpose, see the test go red, restore.
+- After a merge, confirm the Cloudflare Pages check is green and that both remotes point to the same `main` commit.
+
 ## Roadmap (agreed priorities, in this order)
 
 1. **Automatic backups.** All data is one KV key that is fully overwritten on every save, and previews write to the same data. Keep the last ~30 versions (e.g. extra keys `finanz_data@<timestamp>` written by `functions/api.js` on POST, oldest pruned) and offer a restore in Settings.
