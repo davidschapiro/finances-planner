@@ -2133,6 +2133,12 @@ function App() {
   const actBtn = (ico, label, onClick, color, extraClass = '') => e('button', { className:'actbtn btn-tonal' + (extraClass ? ' ' + extraClass : ''), onClick,
     style: color ? { color: color + ' !important' } : undefined },
     typeof ico === 'string' ? e(Icon, { name:ico, size:22 }) : ico, e('span', null, label));
+  // Every amount field: left-aligned text with the calculator button on the right
+  const amountInput = (value, set, onKeyDown, extra = {}) => e('div', { style:{ position:'relative', minWidth:0 } },
+    e('input', { placeholder:tr('Betrag'), 'aria-label':tr('Betrag'), value, inputMode:'decimal', ...extra,
+      style:{ fontFamily:'var(--mono)', textAlign:'left', width:'100%', boxSizing:'border-box', paddingRight: isMobile ? 56 : 46 },
+      onChange: ev => set(ev.target.value), onKeyDown }),
+    e(CalcPopover, { value, onInsert: set }));
   // Budget rows look like the transaction list: description on top, account + status below,
   // amount on the right, one round action button, more actions on tap.
   const budgetBadge = (label, kind, onClick) => e(onClick ? 'button' : 'span', {
@@ -2183,8 +2189,7 @@ function App() {
         e('input', { value:budgetEdit.desc, placeholder:tr('Beschreibung'), autoFocus:true,
           onChange: ev => setBudgetEdit(f => ({ ...f, desc:ev.target.value })), onKeyDown: keys }),
         e('div', { style:{ display:'grid', gridTemplateColumns:'minmax(0,1fr) minmax(0,1fr)', gap:10 } },
-          e('input', { value:budgetEdit.amt, placeholder:tr('Betrag'), inputMode:'decimal', style:{ fontFamily:'var(--mono)' },
-            onChange: ev => setBudgetEdit(f => ({ ...f, amt:ev.target.value })), onKeyDown: keys }),
+          amountInput(budgetEdit.amt, v => setBudgetEdit(f => ({ ...f, amt:v })), keys),
           e('select', { value:budgetEdit.acct, 'aria-label':tr('Konto'), onChange: ev => setBudgetEdit(f => ({ ...f, acct:ev.target.value })) },
             ...Object.entries(accts).map(([k, v]) => e('option', { key:k, value:k }, v.label)))),
         e('div', { style:{ display:'flex', justifyContent:'flex-end', gap:8 } },
@@ -2241,9 +2246,7 @@ function App() {
       e('input', { placeholder:tr('Beschreibung'), value:form.desc, autoFocus:true,
         onChange: ev => setForm(f => ({...f, desc:ev.target.value})), onKeyDown: keys }),
       e('div', { style:{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 } },
-        e('input', { placeholder:tr('Betrag'), value:form.amt, inputMode:'decimal',
-          style:{ fontFamily:'var(--mono)', textAlign:'right' },
-          onChange: ev => setForm(f => ({...f, amt:ev.target.value})), onKeyDown: keys }),
+        amountInput(form.amt, v => setForm(f => ({...f, amt:v})), keys),
         e('select', { value:form.acct || Object.keys(accts)[0],
           onChange: ev => setForm(f => ({...f, acct:ev.target.value})) },
           ...Object.entries(accts).map(([k,v]) => e('option',{key:k, value:k}, v.label))
@@ -2370,13 +2373,7 @@ function App() {
     e(BalanceChart, { data: chart, accts, height: isMobile ? 320 : 400 })  );
 
   // ── Transaction table ────────────────────────────────────────────────────
-  const amtField = e('div', { style:{ position:'relative' } },
-    e('input', { placeholder:tr('Betrag'), value:form.amt, inputMode: isMobile ? 'decimal' : undefined,
-      style:{fontFamily:'var(--mono)', textAlign:'left', paddingRight: isMobile ? 56 : 46},
-      onChange: ev => setForm(f=>({...f, amt:ev.target.value})),
-      onKeyDown: ev => ev.key==='Enter' && add() }),
-    e(CalcPopover, { value: form.amt, onInsert: v => setForm(f=>({...f, amt:v})) })
-  );
+  const amtField = amountInput(form.amt, v => setForm(f=>({...f, amt:v})), ev => ev.key==='Enter' && add());
   // Material-style checkbox (real <input type=checkbox> for accessibility, custom-drawn box)
   const instantToggle = e('label', { className:'mcheck', title:tr('Direkt auf den Kontostand anwenden – ohne Eintrag in der Liste'),
       style:{ display:'flex', alignItems:'center', gap: isMobile ? 4 : 8, cursor:'pointer', userSelect:'none',
@@ -2561,9 +2558,8 @@ function App() {
           onKeyDown: ev => { if(ev.key==='Enter') saveEdit(); if(ev.key==='Escape') setEditRow(null); } }),
         !editRow.to && e(TagDropdown, { selectedTags:editRow.tags||[], tags,
           onChange: t => setEditRow(r=>({...r, tags:t})) }),
-        e('input', { value:editRow.amt, inputMode:'decimal', style:{fontFamily:'var(--mono)', textAlign:'right'},
-          onChange: ev => setEditRow(r=>({...r, amt:ev.target.value})),
-          onKeyDown: ev => { if(ev.key==='Enter') saveEdit(); if(ev.key==='Escape') setEditRow(null); } }),
+        amountInput(editRow.amt, v => setEditRow(r=>({...r, amt:v})),
+          ev => { if(ev.key==='Enter') saveEdit(); if(ev.key==='Escape') setEditRow(null); }),
         e('div', { style:{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10} },
           e('button', { onClick:()=>setEditRow(null) }, tr('Abbrechen')),
           e('button', { onClick:()=>{ saveEdit(); setOpenTx(null); },
