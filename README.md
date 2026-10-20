@@ -26,8 +26,13 @@ Runs on your own free Cloudflare account, behind your own login — see [Set up 
 - **Tag filter** with colour chips. Colours are adjusted automatically for contrast in light and dark mode.
 
 **Budget**
-- Per month: income and expense templates plus actual entries for the month, with the balance (Saldo).
-- Templates can be turned into a real transaction for the month ("→ Buchen") and reverted ("↺").
+- Per month: income and expense templates plus the month's actual entries. The header shows **Übrig** (left over) = income − expenses − saved.
+- **Transfers** in the budget depend on the account setting **"Im Budget"** (⚙ on the account; savings accounts are outside by default):
+  - into an account outside the budget → **Gespart** (saved); back out of it → **Entnommen** (withdrawn), shown in the same section;
+  - between two budget accounts (e.g. checking → credit card) → **Umbuchungen**, neutral, not counted in Übrig;
+  - income and expenses on accounts outside the budget don't count.
+- Templates (also transfer templates with From → To) can be booked for a month (round → button, with a date), undone (↺), edited and deleted (tap the row; delete has undo). States: *offen*, *✓ gebucht* (planned transaction in the list), *✓ angewendet* (applied to the balance with ✓).
+- An ⓘ next to the title explains all of this in the app (German / English).
 
 **Settings** (⚙ next to the title)
 - **Language** (Deutsch / English) and **currency** (EUR, USD, GBP, CHF, ILS, …). Both are saved with the data, so every device shows the same. Without a saved choice the language follows the browser. Number input follows the language: `1.234,50` in German, `1,234.50` in English.
