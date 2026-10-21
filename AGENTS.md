@@ -69,6 +69,7 @@ See [README.md](README.md) → *Development*: single `index.html`, no build step
 - On mobile, `button:not(.ibtn):not(.pillx):not(.chip)` sets `font-size: 14px !important` with high specificity. A plain `.actbtn` rule can't override it — style the label `span` or use a more specific selector.
 - Every UI text goes through `tr()` with an `I18N_EN` entry; money through `eur()`, input through `parseAmount()`, dates through `fmtDate()`/`fmtDayMonth()`. Never hard-code `de-DE`, `€` or a date format.
 - Budget templates are linked to their transactions by `budgetId` and remember `bookedMonths` / `appliedMonths`. Older transactions are only matched by identical description + amount.
+- Accounts have `inBudget` (unset = default: savings accounts outside, all others inside). Budget transfers are classified by `transferKind(from, to)`: into an outside account = saved, out of one = withdrawn, between budget accounts = neutral. "Übrig" = income − expenses − saved.
 - `confirm()`/`alert()` dialogs block browser automation; tests must accept or dismiss them (see `tests/helpers.py`).
 
 **Testing**
