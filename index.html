@@ -1593,7 +1593,7 @@ function App() {
         });
         return;
       }
-      const next = [...txs, { id:Date.now(), date:form.date, acct:from, to, desc, amt:-X, tags:form.tags||[] }];
+      const next = [...txs, { id:Date.now(), date:form.date, acct:from, to, desc, amt:-X, tags:[] }];   // transfers have no tag picker
       setTxs(next); persist(next, init, accts, tags, budget);
       setForm(f => ({ ...f, desc:'', amt:'', tags:[] }));
       return;
@@ -1916,14 +1916,18 @@ function App() {
     ].filter(Boolean).join(' \u0001 ').toLowerCase();
   };
   const searchTerms = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const TRANSFER_FILTER = '__transfer';   // built-in filter chip: all transfers (not a real tag)
 
   const visible = useMemo(() => txs.filter(tx =>
-      (filterTags.length === 0 || filterTags.some(ft => (tx.tags||[]).includes(ft))) &&
+      (filterTags.length === 0 || filterTags.some(ft => ft === TRANSFER_FILTER ? !!tx.to : (tx.tags||[]).includes(ft))) &&
       (searchTerms.length === 0 || (h => searchTerms.every(t => h.includes(t)))(searchHay(tx)))
     ),
   [txs, filterTags, search, accts, tags]);
   const filterActive = filterTags.length > 0 || searchTerms.length > 0;
-  const visibleSum = visible.reduce((s, tx) => s + (tx.to ? 0 : (tx.amt||0)), 0);   // Umbuchungen sind neutral
+  // Transfers are neutral in the sum — except when only transfers are shown: then Σ = the amount moved
+  const onlyTransfers = visible.length > 0 && visible.every(tx => tx.to);
+  const visibleSum = onlyTransfers ? visible.reduce((s, tx) => s + Math.abs(tx.amt || 0), 0)
+                                   : visible.reduce((s, tx) => s + (tx.to ? 0 : (tx.amt||0)), 0);
 
   const sorted = useMemo(() => [...visible].sort((a,b) => {
     const m = sort.dir==='asc' ? 1 : -1;
@@ -2424,6 +2428,13 @@ function App() {
         cursor:'pointer', color:'var(--text2)', display:'flex', alignItems:'center', justifyContent:'center',
         ...(isMobile ? { width:48, height:48 } : {}) } }, e(Icon, { name:'close', size: isMobile ? 22 : 16 })),
   );
+  const transferChip = (() => {
+    const active = filterTags.includes(TRANSFER_FILTER);
+    return e('button', { key:TRANSFER_FILTER, type:'button', className:'chip' + (active ? ' on' : ''),
+      onClick: () => setFilterTags(fs => active ? fs.filter(f => f !== TRANSFER_FILTER) : [...fs, TRANSFER_FILTER]),
+      style: isMobile ? undefined : { height:28, fontSize:13, padding:'0 10px' } },
+      e(Icon, { name: active ? 'check' : 'swap_horiz', size:18 }), tr('Umbuchungen'));
+  })();
   const tagChips = tags.map(tag => {
     const active = filterTags.includes(tag.id);
     return e('button', { key:tag.id, type:'button', className:'chip' + (active ? ' on' : ''),
@@ -2449,15 +2460,15 @@ function App() {
     ? e('div', { style:{ display:'flex', flexDirection:'column', gap:10, padding:'12px 14px',
         borderBottom:'1px solid var(--border)', background:'var(--bg2)' } },
         searchBox,
-        tags.length > 0 && e('div', { className:'chiprow' }, ...tagChips),
+        e('div', { className:'chiprow' }, transferChip, ...tagChips),
         filterActive && e('div', { style:{ display:'flex', justifyContent:'space-between', alignItems:'center' } },
           filterSummary, filterReset),
       )
     : e('div', { style:{ display:'flex', flexDirection:'column', gap:8, padding:'10px 14px',
         borderBottom:'1px solid var(--border)', background:'var(--bg2)' } },
         searchBox,
-        (tags.length > 0 || filterActive) && e('div', { style:{ display:'flex', gap:6, alignItems:'center', flexWrap:'wrap' } },
-          ...tagChips, filterSummary, filterReset),
+        e('div', { style:{ display:'flex', gap:6, alignItems:'center', flexWrap:'wrap' } },
+          transferChip, ...tagChips, filterSummary, filterReset),
       );
 
   // ── Chart panel ──────────────────────────────────────────────────────────

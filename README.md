@@ -23,7 +23,7 @@ Runs on your own free Cloudflare account, behind your own login — see [Set up 
 - **Copy, edit and delete**: tap or click a transaction to show its actions.
 - **Layout**: on wide screens (≥ 1280 px) two panes in a 2:1 ratio, with the overview (totals, accounts, budget, chart) on the left and the transactions on the right; the left pane stays in view while the list scrolls.
 - **Search**: matches text, account, tag, amount (`45`, `1.234,50`, `-45,00`) and date (`2026-06`, `09.06.`, `juni`). All terms must match; the match count and the sum are shown.
-- **Tag filter** with colour chips. Colours are adjusted automatically for contrast in light and dark mode.
+- **Tag filter** with colour chips, plus a built-in **⇄ Umbuchungen** chip that shows all transfers (Σ then shows the amount moved). Colours are adjusted automatically for contrast in light and dark mode.
 
 **Budget**
 - Per month: income and expense templates plus the month's actual entries. The header shows **Übrig** (left over) = income − expenses − saved.
