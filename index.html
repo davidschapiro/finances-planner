@@ -1650,7 +1650,8 @@ function App() {
     // If this was a budget template's transaction, remember that its month is now applied
     const tpl = budget.find(b => matchesTemplate(tx, b));
     const month = (tx.date || '').slice(0, 7);
-    const newBudget = tpl ? markMonth(markMonth(budget, tpl.id, 'bookedMonths', month, true), tpl.id, 'appliedMonths', month, true) : budget;
+    const newBudget = tpl ? setBookedDate(markMonth(markMonth(budget, tpl.id, 'bookedMonths', month, true), tpl.id, 'appliedMonths', month, true),
+      tpl.id, month, tx.date) : budget;
     setInit(newInit);
     setTxs(newTxs);
     if (tpl) setBudget(newBudget);
@@ -1820,11 +1821,19 @@ function App() {
     return months.size ? { ...rest, [key]: [...months].sort() } : rest;
   })());
   const setBookedMonth = (item, month, on) => markMonth(budget, item.id, 'bookedMonths', month, on);
+  // Remember the booking date per month (bookedDates: { 'YYYY-MM': 'YYYY-MM-DD' }); date null removes it
+  const setBookedDate = (list, itemId, month, date) => list.map(b => {
+    if (b.id !== itemId) return b;
+    const dates = { ...(b.bookedDates || {}) };
+    if (date) dates[month] = date; else delete dates[month];
+    const { bookedDates: _, ...rest } = b;
+    return Object.keys(dates).length ? { ...rest, bookedDates: dates } : rest;
+  });
   const confirmBookBudgetItem = item => {
     if (!budgetBookDate) return; // date is mandatory
     const newTxs = [...txs, { id:Date.now(), date:budgetBookDate, acct:item.acct || Object.keys(accts)[0],
       ...(item.to ? { to:item.to } : {}), desc:item.desc, amt:item.amt, tags:[], budgetId:item.id }];
-    const newBudget = setBookedMonth(item, budgetBookDate.slice(0, 7), true);
+    const newBudget = setBookedDate(setBookedMonth(item, budgetBookDate.slice(0, 7), true), item.id, budgetBookDate.slice(0, 7), budgetBookDate);
     setTxs(newTxs); setBudget(newBudget);
     persist(newTxs, init, accts, tags, newBudget);
     setBudgetBookId(null); setBudgetBookDate('');
@@ -1835,7 +1844,7 @@ function App() {
   const unbookBudgetItem = item => {
     const match = budgetInPeriod.find(t => matchesTemplate(t, item));
     const newTxs = match ? txs.filter(t => t.id !== match.id) : txs;
-    const newBudget = setBookedMonth(item, budgetPeriod, false);
+    const newBudget = setBookedDate(setBookedMonth(item, budgetPeriod, false), item.id, budgetPeriod, null);
     setTxs(newTxs); setBudget(newBudget);
     persist(newTxs, init, accts, tags, newBudget);
   };
@@ -1864,21 +1873,24 @@ function App() {
   const BUDGET_INCOME_EXCLUDED_ACCTS = Object.keys(accts).filter(k => acctType(accts[k]) === 'credit');
   const realRow = t => ({ kind:'real', desc: t.desc || (t.to ? transferDesc(t.acct, t.to) : ''), amt:t.amt, acct:t.acct,
     ...(t.to ? { to:t.to } : {}), date:t.date, id:'r'+t.id });
-  const tplRow = b => ({ kind:'template', item:b, id:'t'+b.id });
-  const incomeRows = useMemo(() => [
+  const tplDate = b => budgetInPeriod.find(t => matchesTemplate(t, b))?.date || (b.bookedDates || {})[budgetPeriod] || null;
+  const tplRow = b => ({ kind:'template', item:b, date: tplDate(b), id:'t'+b.id });
+  // Chronological; templates without a booking this month ("offen") come last
+  const byDate = rows => [...rows].sort((a, b) => (a.date ? 0 : 1) - (b.date ? 0 : 1) || (a.date || '').localeCompare(b.date || ''));
+  const incomeRows = useMemo(() => byDate([
     ...adhocInPeriod.filter(t => !t.to && t.amt > 0 && inBudget(t.acct) && !BUDGET_INCOME_EXCLUDED_ACCTS.includes(t.acct)).map(realRow),
     ...budget.filter(b => !b.to && b.amt > 0 && inBudget(b.acct) && !BUDGET_INCOME_EXCLUDED_ACCTS.includes(b.acct)).map(tplRow),
-  ], [adhocInPeriod, budget, accts]);
-  const expenseRows = useMemo(() => [
+  ]), [adhocInPeriod, budgetInPeriod, budget, accts]);
+  const expenseRows = useMemo(() => byDate([
     ...adhocInPeriod.filter(t => !t.to && t.amt < 0 && inBudget(t.acct)).map(realRow),
     ...budget.filter(b => !b.to && b.amt < 0 && inBudget(b.acct)).map(tplRow),
-  ], [adhocInPeriod, budget, accts]);
-  const transferRows = kinds => [
+  ]), [adhocInPeriod, budgetInPeriod, budget, accts]);
+  const transferRows = kinds => byDate([
     ...adhocInPeriod.filter(t => t.to && kinds.includes(transferKind(t.acct, t.to))).map(realRow),
     ...budget.filter(b => b.to && kinds.includes(transferKind(b.acct, b.to))).map(tplRow),
-  ];
-  const savedRows   = useMemo(() => transferRows(['saved', 'withdrawn']), [adhocInPeriod, budget, accts]);
-  const neutralRows = useMemo(() => transferRows(['neutral']), [adhocInPeriod, budget, accts]);
+  ]);
+  const savedRows   = useMemo(() => transferRows(['saved', 'withdrawn']), [adhocInPeriod, budgetInPeriod, budget, accts]);
+  const neutralRows = useMemo(() => transferRows(['neutral']), [adhocInPeriod, budgetInPeriod, budget, accts]);
   const rowAmt = r => r.kind === 'real' ? r.amt : r.item.amt;
   const rowFrom = r => r.kind === 'real' ? r.acct : r.item.acct;
   const rowTo   = r => r.kind === 'real' ? r.to : r.item.to;
@@ -2276,6 +2288,7 @@ function App() {
         e('div', { style:{ display:'flex', flexDirection:'column', gap:5, flex:1, minWidth:0 } },
           e('div', { style:descStyle }, item.desc),
           e('div', { style:{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' } },
+            r.date && e('span', { style:{ fontFamily:'var(--mono)', fontSize:12, color:'var(--text2)' } }, fmtDayMonth(r.date)),
             item.to ? budgetTransferPills(item.acct, item.to) : budgetAcctPill(item.acct),
             applied ? budgetBadge(tr('✓ angewendet'), 'applied', () => showToast(appliedMsg))
               : booked ? budgetBadge(tr('✓ gebucht'), 'booked')
@@ -2400,13 +2413,14 @@ function App() {
         e('span', { style:{fontFamily:'var(--mono)', fontSize:20, fontWeight:700, color:saldoCol} }, eur(budgetSaldo)),
       ),
     ),
+    (neutralRows.length > 0 || !hasOutsideAcct) && e('div', { style:{ marginBottom: isMobile ? 16 : 20 } },
+      budgetColumn(tr('Umbuchungen'), neutralRows, neutralTotal,
+        'var(--text2)', 'transfer-neutral', null, null, null, tr('Zählen nicht zum Übrig.'))),
     e('div', { style:{display:'flex', gap:isMobile ? 16 : 24, flexWrap:'wrap'} },
       budgetColumn(tr('Einnahmen'), incomeRows, incomeTotal, 'var(--ok)', 'in',  budgetIncomeForm,  setBudgetIncomeForm),
       budgetColumn(tr('Ausgaben'),  expenseRows, expenseTotal, 'var(--bad)', 'out', budgetExpenseForm, setBudgetExpenseForm),
       (hasOutsideAcct || savedRows.length > 0) && budgetColumn(savedTotal < 0 ? tr('Entnommen') : tr('Gespart'), savedRows, savedTotal,
         savedColor, 'transfer-saved', null, null, r => savedAmt(r) >= 0 ? 'var(--ok)' : 'var(--bad)'),
-      (neutralRows.length > 0 || !hasOutsideAcct) && budgetColumn(tr('Umbuchungen'), neutralRows, neutralTotal,
-        'var(--text2)', 'transfer-neutral', null, null, null, tr('Zählen nicht zum Übrig.')),
     ),
   );
 
