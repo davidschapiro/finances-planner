@@ -1472,6 +1472,11 @@ function App() {
   const [showAdd, setShowAdd] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showBudgetInfo, setShowBudgetInfo] = useState(false);
+  useEffect(() => {
+    if (!showBudget) return;
+    const t = setTimeout(() => document.getElementById('budget-panel')?.scrollIntoView({ behavior:'smooth', block:'start' }), 60);
+    return () => clearTimeout(t);
+  }, [showBudget]);
   const [showTotalCfg, setShowTotalCfg] = useState(false);
   const [settings, setSettings] = useState({});               // { lang, currency }
   SETTINGS = settings;
@@ -2390,7 +2395,7 @@ function App() {
   const hasOutsideAcct = Object.keys(accts).some(k => !inBudget(k));
   const savedColor = savedTotal < 0 ? 'var(--bad)' : 'var(--ok)';
 
-  const budgetPanel = showBudget && e('div', { className:'panel', style:{padding: isMobile ? '12px 14px 16px' : '14px 16px'} },
+  const budgetPanel = showBudget && e('div', { id:'budget-panel', className:'panel', style:{padding: isMobile ? '12px 14px 16px' : '14px 16px', scrollMarginTop:12} },
     // Header: title left, close top-right
     e('div', { style:{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4} },
       e('div', { style:{display:'flex', alignItems:'center', gap:2} },
@@ -2413,14 +2418,16 @@ function App() {
         e('span', { style:{fontFamily:'var(--mono)', fontSize:20, fontWeight:700, color:saldoCol} }, eur(budgetSaldo)),
       ),
     ),
-    (neutralRows.length > 0 || !hasOutsideAcct) && e('div', { style:{ marginBottom: isMobile ? 16 : 20 } },
-      budgetColumn(tr('Umbuchungen'), neutralRows, neutralTotal,
-        'var(--text2)', 'transfer-neutral', null, null, null, tr('Zählen nicht zum Übrig.'))),
+    // Transfers first (Umbuchungen + Gespart side by side), then income / expenses
+    ((neutralRows.length > 0 || !hasOutsideAcct) || (hasOutsideAcct || savedRows.length > 0)) &&
+      e('div', { style:{ display:'flex', gap:isMobile ? 16 : 24, flexWrap:'wrap', marginBottom: isMobile ? 16 : 20 } },
+        (neutralRows.length > 0 || !hasOutsideAcct) && budgetColumn(tr('Umbuchungen'), neutralRows, neutralTotal,
+          'var(--text2)', 'transfer-neutral', null, null, null, tr('Zählen nicht zum Übrig.')),
+        (hasOutsideAcct || savedRows.length > 0) && budgetColumn(savedTotal < 0 ? tr('Entnommen') : tr('Gespart'), savedRows, savedTotal,
+          savedColor, 'transfer-saved', null, null, r => savedAmt(r) >= 0 ? 'var(--ok)' : 'var(--bad)')),
     e('div', { style:{display:'flex', gap:isMobile ? 16 : 24, flexWrap:'wrap'} },
       budgetColumn(tr('Einnahmen'), incomeRows, incomeTotal, 'var(--ok)', 'in',  budgetIncomeForm,  setBudgetIncomeForm),
       budgetColumn(tr('Ausgaben'),  expenseRows, expenseTotal, 'var(--bad)', 'out', budgetExpenseForm, setBudgetExpenseForm),
-      (hasOutsideAcct || savedRows.length > 0) && budgetColumn(savedTotal < 0 ? tr('Entnommen') : tr('Gespart'), savedRows, savedTotal,
-        savedColor, 'transfer-saved', null, null, r => savedAmt(r) >= 0 ? 'var(--ok)' : 'var(--bad)'),
     ),
   );
 
@@ -3016,10 +3023,10 @@ function App() {
   if (isWide) return e('div', { className:'gap' },
     e('div', { className:'wide-top gap' }, toolbar, tagPanel, newAcctPanel),
     e('div', { className:'two-pane' },
-      e('div', { className:'pane-left' }, cardsWrapped, budgetPanel, chartPanel),
+      e('div', { className:'pane-left' }, cardsWrapped, chartPanel, budgetPanel),
       e('div', { className:'pane-right' }, txPanel)),
     toastEl, settingsDialog, budgetInfoDialog);
-  return e('div', { className:'gap' }, fab, toolbar, tagPanel, newAcctPanel, budgetPanel, cardsWrapped, chartPanel, txWrapped, toastEl, settingsDialog, budgetInfoDialog);
+  return e('div', { className:'gap' }, fab, toolbar, tagPanel, newAcctPanel, cardsWrapped, chartPanel, budgetPanel, txWrapped, toastEl, settingsDialog, budgetInfoDialog);
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(e(App));
