@@ -1812,9 +1812,21 @@ function App() {
     persist(txs, init, accts, tags, newBudget);
     setBudgetEdit(null); setBudgetOpenId(null);
   };
+  // Suggested booking date: the same day as the template's most recent earlier booking, moved into the
+  // viewed month (clamped to the month's length, e.g. 31 → 30). Without an earlier booking: the 1st.
+  const suggestBookDate = item => {
+    const earlier = [
+      ...Object.values(item.bookedDates || {}),
+      ...txs.filter(t => matchesTemplate(t, item)).map(t => t.date),
+    ].filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d || '') && d.slice(0, 7) < budgetPeriod).sort();
+    if (!earlier.length) return `${budgetPeriod}-01`;
+    const [y, m] = budgetPeriod.split('-').map(Number);
+    const day = Math.min(Number(earlier[earlier.length - 1].slice(8, 10)), new Date(y, m, 0).getDate());
+    return `${budgetPeriod}-${String(day).padStart(2, '0')}`;
+  };
   const startBookBudgetItem = item => {
     setBudgetBookId(item.id);
-    setBudgetBookDate(`${budgetPeriod}-01`);
+    setBudgetBookDate(suggestBookDate(item));
   };
   // Booking a template creates a transaction linked to it (budgetId) AND marks the month on the
   // template (bookedMonths). The mark survives when that transaction is later applied with ✓ Buchen
